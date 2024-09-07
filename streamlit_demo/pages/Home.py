@@ -3,6 +3,7 @@ import streamlit as st
 from PIL import Image
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 
 # Define the root directory
 ROOT_DIR = str(Path(__file__).parent.resolve()) + "/"
