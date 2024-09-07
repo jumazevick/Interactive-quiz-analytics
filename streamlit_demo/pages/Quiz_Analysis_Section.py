@@ -92,6 +92,7 @@ def load_data(uploaded_files):
     df['grade'] = pd.to_numeric(df['grade'], errors='coerce')
     return df
 
+
 # Streamlit app setup
 st.title("Moodle STACK Analytics")
 st.sidebar.title("Options")
@@ -503,4 +504,3 @@ if st.sidebar.checkbox("Line Graph of Various Metrics"):
         
     else:
         st.write("You need to upload a file(s) to initiate the analysis.")
-
