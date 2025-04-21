@@ -2,9 +2,10 @@
 name = "tech-for-good-education-team"
 version = "0.1.0"
 description = "Experiment repo for tech for good education team"
-authors = ["Yu-Cheng Tsai <yucheng.tsai@sgae.com>"]
+authors = ["Juma Zevick Otieno <jumazevick@gmail.com>"]
 license = "Apache 2.0"
 readme = "README.md"
+package-mode = false  # ✅ move this line here
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -20,11 +21,6 @@ networkx = "^3.3"
 streamlit = "^1.35.0"
 streamlit-extras = "^0.4.3"
 
-
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
-
-[tool.poetry]
-package-mode = false
-
