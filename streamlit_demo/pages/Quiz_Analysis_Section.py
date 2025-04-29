@@ -123,17 +123,15 @@ You need to upload your quiz files using the **file uploader on the left side**.
 
 ### 📥 How to Export Quiz Attempt Data from Moodle
 
-To use this dashboard, first **export your Moodle quiz attempt data**:
-
+To use this dashboard, first **download your Moodle quiz attempt data on your computer**:
+Here are the steps to follow if you forgot. 
 1. Log in to your Moodle course as a teacher or admin.  
-2. Go to the quiz activity you want to analyze.  
-3. Click:  
-   ⚙️ **Administration > Results > Responses**  
-   or  
-   ⚙️ **Administration > Results > Grades**  
-4. Scroll to the bottom and look for **"Download table data as"**.  
-5. Choose `.CSV`, `.XLS`, or `.XLSX` and download the file.  
-6. Upload the file to this dashboard.
+2. Navigate to the **specific quiz** you want to analyze.  
+3. Click on **"Results"** in the quiz menu.  
+4. Select **"Grades"** to see a list of attempts for all students. 
+5. Scroll to the bottom of the table and look for **"Download table data as"**.  
+6. Choose `.CSV`, `.XLS`, or `.XLSX` and download the file.  
+7. Upload the file to this dashboard.
 
 #### ✅ Required Columns Format
 
