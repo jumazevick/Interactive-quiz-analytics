@@ -95,23 +95,65 @@ def load_data(uploaded_files):
 
 # Streamlit app setup
 st.title("Moodle STACK Analytics")
-st.markdown("""
-This was a Hackathon project, thanks to Sage for helping with the technical setting-up, its still incomplete though. 
-The video below is the intro video of the project conceptualisation.
-It is still a work in progress.If you notice any bugs, please create a PR on GitHub. 
-""")
-st.video("https://www.youtube.com/watch?v=DNFpBALDb70")
 
 st.markdown("""
-### About this Tool
-This dashboard allows you to upload and analyze Moodle STACK quiz data.
+This was a Hackathon project — thanks to Sage for helping with the technical setup.  
+It's still a work in progress. If you notice any bugs, please create a PR on GitHub.  
+
+🎥 Below is an intro video explaining the project idea:
+""")
+
+st.video("https://youtu.be/Ww_FrryExYc?si=x-yeDCqGgUhDjFMb")
+
+st.markdown("""
+---
+
+### 📘 About this Tool
+
+This dashboard allows you to upload and analyze **Moodle STACK quiz data**:
+
 - 📊 Supports `.csv`, `.xls`, `.xlsx` file formats  
 - 🔍 Automatically detects and normalizes grades  
 - 🕒 Parses quiz start/end times and time taken  
-- 📈 Visualizes quiz performance and trends
+- 📈 Visualizes quiz performance and trends  
 
-You need to upload your files on the left side.
+You need to upload your quiz files using the **file uploader on the left side**.
+
+---
+
+### 📥 How to Export Quiz Attempt Data from Moodle
+
+To use this dashboard, first **export your Moodle quiz attempt data**:
+
+1. Log in to your Moodle course as a teacher or admin.  
+2. Go to the quiz activity you want to analyze.  
+3. Click:  
+   ⚙️ **Administration > Results > Responses**  
+   or  
+   ⚙️ **Administration > Results > Grades**  
+4. Scroll to the bottom and look for **"Download table data as"**.  
+5. Choose `.CSV`, `.XLS`, or `.XLSX` and download the file.  
+6. Upload the file to this dashboard.
+
+#### ✅ Required Columns Format
+
+Make sure your file includes the following columns **exactly** as named:
+
+**Surname, First name, Email address, State, Started on, Completed, Time taken, Grade/10.00**
+
+Moodle setups can vary — if your columns are named differently, you may need to manually rename them before uploading.
+
+Example files to test or adapt are available here:  
+👉 [Sample Moodle Quiz Files](https://drive.google.com/drive/folders/1r7c1asoMFwaLORaQVKisJk7xpWazzC5I?usp=sharing)
+
+---
 """)
+
+
+
+
+
+
 
 st.sidebar.title("Options")
 
