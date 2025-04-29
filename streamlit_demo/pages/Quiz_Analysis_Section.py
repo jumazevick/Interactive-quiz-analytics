@@ -95,6 +95,12 @@ def load_data(uploaded_files):
 
 # Streamlit app setup
 st.title("Moodle STACK Analytics")
+st.markdown("""
+This was a Hackathon project, thanks to Sage for helping with the technical setting-up, its still incomplete though. 
+The video below is the intro video of the project conceptualisation.
+It is still a work in progress.If you notice any bugs, please create a PR on GitHub. 
+""")
+st.video("https://www.youtube.com/watch?v=DNFpBALDb70")
 
 st.markdown("""
 ### About this Tool
@@ -104,9 +110,8 @@ This dashboard allows you to upload and analyze Moodle STACK quiz data.
 - 🕒 Parses quiz start/end times and time taken  
 - 📈 Visualizes quiz performance and trends
 
-Upload your files below to get started.
+You need to upload your files on the left side.
 """)
-
 
 st.sidebar.title("Options")
 
