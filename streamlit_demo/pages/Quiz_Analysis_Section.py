@@ -95,6 +95,19 @@ def load_data(uploaded_files):
 
 # Streamlit app setup
 st.title("Moodle STACK Analytics")
+
+st.markdown("""
+### About this Tool
+This dashboard allows you to upload and analyze Moodle STACK quiz data.
+- 📊 Supports `.csv`, `.xls`, `.xlsx` file formats  
+- 🔍 Automatically detects and normalizes grades  
+- 🕒 Parses quiz start/end times and time taken  
+- 📈 Visualizes quiz performance and trends
+
+Upload your files below to get started.
+""")
+
+
 st.sidebar.title("Options")
 
 # File upload section
