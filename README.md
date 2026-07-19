@@ -1,30 +1,30 @@
-# Sage Foundation: tech for good education team 1 
+# Sage Foundation: tech for good education team 1
 
-## Tailored Quiz Recommendation System
+## Moodle STACK Analytics Hub
 
 ## Overview
 
-This project develops a tailored quiz recommendation system aimed at improving student learning outcomes by recommending quizzes based on their past performance. The system uses machine learning models to predict the quizzes that would be most beneficial for each student, thus personalizing the learning experience.
+This project is a Streamlit dashboard for analyzing Moodle STACK quiz attempt exports. It helps lecturers and administrators inspect student performance, quiz difficulty, engagement patterns, and attempt behavior across multiple quizzes.
 
 ## Features
 
-- **Upload Student Data**: Professors can upload CSV files containing students' quiz scores.
-- **Email-based Recommendations**: After specifying a student's email, the system provides tailored quiz recommendations for that student.
-- **Recommendation Types**: Users can choose between two types of recommendations:
-  - `top_n`: Recommends the quizzes with the highest predicted quiz scores (easiest questions).
-  - `diverse`: Recommends a diverse set of quizzes to cover a range of potential interests and learning needs.
-- **Interactive Web Interface**: Built using Streamlit, the interface is user-friendly and allows for easy interaction without the need for additional software.
-- **Downloadable Recommendations**: Professors can download the recommended quizzes as a CSV file, making it easy to keep track of suggestions.
+- **Upload quiz attempt data**: Supports `.csv`, `.xls`, and `.xlsx` exports from Moodle.
+- **Merge multiple quizzes**: Combine several quiz files into one analysis view.
+- **Normalize grades**: Converts quiz grades to a common 0-10 scale.
+- **Parse attempt metadata**: Converts start/end timestamps and time taken into analysis-friendly values.
+- **Interactive analytics**: View summary tables, grade distributions, engagement density plots, scatter plots, and line charts.
+- **Quiz-level filtering**: Select one or more quiz IDs to focus the analysis.
 
 ## Technical Description
 
 ### Tools and Libraries Used
 
-- **Streamlit**: Web framework used for creating the interactive web interface.
-- **Surprise**: A Python scikit for building and analyzing recommender systems that deal with explicit rating data.
-- **Pickle**: For saving and loading machine learning models and data sets, ensuring that state is preserved between sessions.
-- **Pandas**: Data manipulation and analysis.
-- **Scikit-Learn**: Stats library for building clusetring algorithms
+- **Streamlit**: Web framework used for the interactive dashboard.
+- **Pandas**: Data loading, cleaning, and aggregation.
+- **Seaborn**: Statistical plotting.
+- **Matplotlib**: Base plotting for charts.
+- **Altair**: Used for interactive line charts in the quiz metrics view.
+- **OpenPyXL / xlrd**: Used for reading `.xlsx` and `.xls` files.
 
 ## Usage
 
@@ -33,9 +33,14 @@ This project develops a tailored quiz recommendation system aimed at improving s
 conda create -n hackathon-education python=3.10.8
 conda activate hackathon-education
 pip install poetry
-cd tech-for-good-education-team
+cd Interactive-quiz-analytics
 poetry install
 ```
 
-#### 2. Change Jupyter Notebook kernel
-Change Jupyter Notebook kernel to `hackathon-education` conda env.
+#### 2. Run the Streamlit app
+From the `streamlit_demo` directory, run:
+```
+streamlit run pages/Home.py
+```
+
+If you plan to use the full quiz analytics page, make sure the environment also includes `altair` and `xlrd`, since the Streamlit code imports them.

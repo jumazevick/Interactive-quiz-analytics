@@ -242,56 +242,6 @@ def generate_quiz_stats(selected_stats):
     else:
         return pd.DataFrame()  # Return an empty dataframe if no stats are selected
 
-# Function to generate the quiz statistics based on selected options
-def generate_quiz_stats(selected_stats):
-    if df_filtered.empty:
-        print("there is no data")
-    # Initialize a list to store the selected dataframes
-    dfs = []
-    # Add student count
-    if "Students" in selected_stats:
-        students_per_quiz = df_filtered.groupby('quizID')['email'].nunique().reset_index()
-        students_per_quiz.columns = ['quizID', 'Students']
-        dfs.append(students_per_quiz)
-
-    # Add mean and variance of grades
-    if "Mean Grade" in selected_stats or "Variance Grade" in selected_stats:
-        grade_statistics = df_filtered.groupby('quizID')['grade'].agg(['mean', 'var']).reset_index()
-        grade_statistics.columns = ['quizID', 'Mean_Grade', 'Variance_Grade']
-        if "Mean Grade" not in selected_stats:
-            grade_statistics = grade_statistics.drop(columns=['Mean_Grade'])
-        if "Variance Grade" not in selected_stats:
-            grade_statistics = grade_statistics.drop(columns=['Variance_Grade'])
-        dfs.append(grade_statistics)
-
-    # Add mean of highest grades
-    if "Mean Highest Grade" in selected_stats:
-        highest_grades = df_filtered.groupby(['quizID', 'email'])['grade'].max().reset_index()
-        average_highest_grades = highest_grades.groupby('quizID')['grade'].mean().reset_index()
-        average_highest_grades.columns = ['quizID', 'Mean_Highest_Grade']
-        dfs.append(average_highest_grades)
-
-    # Add total number of attempts
-    if "#No Attempts" in selected_stats:
-        total_attempts_per_quiz = df_filtered.groupby('quizID').size().reset_index(name='#No. Attempts')
-        dfs.append(total_attempts_per_quiz)
-
-    # Add rate of attempts
-    if "Rate of Attempt" in selected_stats:
-        attempts_per_student = df_filtered.groupby(['quizID', 'email']).size().reset_index(name='attempt_count')
-        average_attempts_per_student = attempts_per_student.groupby('quizID')['attempt_count'].mean().reset_index()
-        average_attempts_per_student.columns = ['quizID', 'Rate_of_Attempt']
-        dfs.append(average_attempts_per_student)
-
-    # Merge all selected dataframes on quizID
-    if dfs:
-        quiz_stats = dfs[0]
-        for df in dfs[1:]:
-            quiz_stats = pd.merge(quiz_stats, df, on='quizID')
-        return quiz_stats.round(2)
-    else:
-        return pd.DataFrame()  # Return an empty dataframe if no stats are selected
-
 # Sidebar options
 show_summary = st.sidebar.checkbox("Summary of Quiz Stats")
 
@@ -483,12 +433,7 @@ if st.sidebar.checkbox("Scatter plot: Attempts vs Grades"):
 
     else:
         st.write("You need to upload a file(s) to initiate the analysis.")
-
-
-
 # Line Graph of Various Quiz Metrics
-import altair as alt
-
 if st.sidebar.checkbox("Line Graph of Various Metrics"):
     st.write("### Line Graph of Various Metrics")
 
