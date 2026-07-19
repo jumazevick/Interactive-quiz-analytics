@@ -97,54 +97,17 @@ def load_data(uploaded_files):
 st.title("Moodle STACK Analytics")
 
 st.markdown("""
-This was a Hackathon project — thanks to Sage for helping with the technical setup.  
-It's still a work in progress. If you notice any bugs, please create a PR on GitHub.  
+This section is for analyzing uploaded Moodle STACK quiz files.
 
-?? Below is an intro video explaining the project idea:
-""")
+Use the sidebar to upload one or more quiz result files. After upload, you can:
 
-st.video("https://youtu.be/Ww_FrryExYc?si=x-yeDCqGgUhDjFMb")
+- review merged attempts from multiple quizzes
+- compare student count, attempt rate, mean grade, and grade spread
+- view grade distributions
+- check engagement over time
+- compare attempts against grades
 
-st.markdown("""
----
-
-### ?? About this Tool
-
-This dashboard allows you to upload and analyze **Moodle STACK quiz data**:
-
-- ?? Supports `.csv`, `.xls`, `.xlsx` file formats  
-- ?? Automatically detects and normalizes grades  
-- ?? Parses quiz start/end times and time taken  
-- ?? Visualizes quiz performance and trends  
-
-You need to upload your quiz files using the **file uploader on the left side**.
-
----
-
-### ?? How to Export Quiz Attempt Data from Moodle
-
-To use this dashboard, first **download your Moodle quiz attempt data on your computer**:
-Here are the steps to follow if you forgot. 
-1. Log in to your Moodle course as a teacher or admin.  
-2. Navigate to the **specific quiz** you want to analyze.  
-3. Click on **"Results"** in the quiz menu.  
-4. Select **"Grades"** to see a list of attempts for all students. 
-5. Scroll to the bottom of the table and look for **"Download table data as"**.  
-6. Choose `.CSV`, `.XLS`, or `.XLSX` and download the file.  
-7. Upload the file to this dashboard.
-
-#### ? Required Columns Format
-
-Make sure your file includes the following columns **exactly** as named:
-
-**Surname, First name, Email address, State, Started on, Completed, Time taken, Grade/10.00**
-
-Moodle setups can vary — if your columns are named differently, you may need to manually rename them before uploading.
-
-Example files to test or adapt are available here:  
-?? [Sample Moodle Quiz Files](https://drive.google.com/drive/folders/1r7c1asoMFwaLORaQVKisJk7xpWazzC5I?usp=sharing)
-
----
+If you need help downloading the files from Moodle, use the homepage guide.
 """)
 
 
@@ -156,7 +119,7 @@ Example files to test or adapt are available here:
 st.sidebar.title("Options")
 
 # File upload section
-uploaded_files = st.sidebar.file_uploader("Upload Excel files", accept_multiple_files=True)
+uploaded_files = st.sidebar.file_uploader("Upload quiz result files", accept_multiple_files=True)
 
 if uploaded_files:
     # Load and process data
