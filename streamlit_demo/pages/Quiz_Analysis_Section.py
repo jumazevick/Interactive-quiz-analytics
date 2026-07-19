@@ -1,4 +1,4 @@
-import streamlit as st
+﻿import streamlit as st
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -100,7 +100,7 @@ st.markdown("""
 This was a Hackathon project — thanks to Sage for helping with the technical setup.  
 It's still a work in progress. If you notice any bugs, please create a PR on GitHub.  
 
-🎥 Below is an intro video explaining the project idea:
+?? Below is an intro video explaining the project idea:
 """)
 
 st.video("https://youtu.be/Ww_FrryExYc?si=x-yeDCqGgUhDjFMb")
@@ -108,20 +108,20 @@ st.video("https://youtu.be/Ww_FrryExYc?si=x-yeDCqGgUhDjFMb")
 st.markdown("""
 ---
 
-### 📘 About this Tool
+### ?? About this Tool
 
 This dashboard allows you to upload and analyze **Moodle STACK quiz data**:
 
-- 📊 Supports `.csv`, `.xls`, `.xlsx` file formats  
-- 🔍 Automatically detects and normalizes grades  
-- 🕒 Parses quiz start/end times and time taken  
-- 📈 Visualizes quiz performance and trends  
+- ?? Supports `.csv`, `.xls`, `.xlsx` file formats  
+- ?? Automatically detects and normalizes grades  
+- ?? Parses quiz start/end times and time taken  
+- ?? Visualizes quiz performance and trends  
 
 You need to upload your quiz files using the **file uploader on the left side**.
 
 ---
 
-### 📥 How to Export Quiz Attempt Data from Moodle
+### ?? How to Export Quiz Attempt Data from Moodle
 
 To use this dashboard, first **download your Moodle quiz attempt data on your computer**:
 Here are the steps to follow if you forgot. 
@@ -133,7 +133,7 @@ Here are the steps to follow if you forgot.
 6. Choose `.CSV`, `.XLS`, or `.XLSX` and download the file.  
 7. Upload the file to this dashboard.
 
-#### ✅ Required Columns Format
+#### ? Required Columns Format
 
 Make sure your file includes the following columns **exactly** as named:
 
@@ -142,7 +142,7 @@ Make sure your file includes the following columns **exactly** as named:
 Moodle setups can vary — if your columns are named differently, you may need to manually rename them before uploading.
 
 Example files to test or adapt are available here:  
-👉 [Sample Moodle Quiz Files](https://drive.google.com/drive/folders/1r7c1asoMFwaLORaQVKisJk7xpWazzC5I?usp=sharing)
+?? [Sample Moodle Quiz Files](https://drive.google.com/drive/folders/1r7c1asoMFwaLORaQVKisJk7xpWazzC5I?usp=sharing)
 
 ---
 """)
@@ -172,28 +172,7 @@ if st.sidebar.checkbox("Merged List of Users and Files"):
     st.write("### Merged List of Users and Files")
 
     st.write(
-    """
-    **Dataset Description:**
-    This table displays the merged data from all the files you have uploaded for analysis. 
-    Each row represents an individual quiz attempt and includes the following columns:
-    - **quizID**: Identifier for the quiz.
-    - **surname**: Surname of the student.
-    - **firstname**: First name of the student.
-    - **email**: Email address of the student.
-    - **state**: Status of the quiz attempt (The code handles only Finished Quizzes).
-    - **start_date**: Date and time when the quiz attempt started.
-    - **end_date**: Date and time when the quiz attempt was completed.
-    - **time_taken**: Duration of the quiz attempt converted into seconds.
-    - **grade**: Normalized grade out of 10.
-
-    **Data Preprocessing Steps:**
-    1. **Merging:** All the uploaded files were appended to form a single dataset, ensuring each quiz attempt by every student is recorded.
-    2. **Datetime Parsing:** Dates and times were parsed to standardize the format and enable accurate analysis.
-    3. **Duration Parsing:** The time taken for each quiz was converted into seconds for consistency.
-    4. **Grade Normalization:** Grades were normalized to a common scale (0-10) for uniformity.
-
-    You can use the checkboxes on the left to view specific insights or export this dataset for further independent analyses.
-    """
+    "This table combines all uploaded quiz files into one view. Each row is one attempt, with the student, quiz, date, time taken, and normalized grade."
     )
     st.dataframe(df_filtered)
     
@@ -204,34 +183,34 @@ def generate_quiz_stats(selected_stats):
     
     dfs = []
     
-    if "Students" in selected_stats:
+    if "student_count" in selected_stats:
         students_per_quiz = df_filtered.groupby('quizID')['email'].nunique().reset_index()
-        students_per_quiz.columns = ['quizID', 'Students']
+        students_per_quiz.columns = ['quizID', 'student_count']
         dfs.append(students_per_quiz)
     
-    if "Mean Grade" in selected_stats or "Variance Grade" in selected_stats:
+    if "mean_grade" in selected_stats or "grade_variance" in selected_stats:
         grade_statistics = df_filtered.groupby('quizID')['grade'].agg(['mean', 'var']).reset_index()
-        grade_statistics.columns = ['quizID', 'Mean_Grade', 'Variance_Grade']
-        if "Mean Grade" not in selected_stats:
-            grade_statistics = grade_statistics.drop(columns=['Mean_Grade'])
-        if "Variance Grade" not in selected_stats:
-            grade_statistics = grade_statistics.drop(columns=['Variance_Grade'])
+        grade_statistics.columns = ['quizID', 'mean_grade', 'grade_variance']
+        if "mean_grade" not in selected_stats:
+            grade_statistics = grade_statistics.drop(columns=['mean_grade'])
+        if "grade_variance" not in selected_stats:
+            grade_statistics = grade_statistics.drop(columns=['grade_variance'])
         dfs.append(grade_statistics)
     
-    if "Mean Highest Grade" in selected_stats:
+    if "mean_highest_grade" in selected_stats:
         highest_grades = df_filtered.groupby(['quizID', 'email'])['grade'].max().reset_index()
         average_highest_grades = highest_grades.groupby('quizID')['grade'].mean().reset_index()
-        average_highest_grades.columns = ['quizID', 'Mean_Highest_Grade']
+        average_highest_grades.columns = ['quizID', 'mean_highest_grade']
         dfs.append(average_highest_grades)
     
-    if "#No Attempts" in selected_stats:
-        total_attempts_per_quiz = df_filtered.groupby('quizID').size().reset_index(name='#No. Attempts')
+    if "attempt_count" in selected_stats:
+        total_attempts_per_quiz = df_filtered.groupby('quizID').size().reset_index(name='attempt_count')
         dfs.append(total_attempts_per_quiz)
     
-    if "Rate of Attempt" in selected_stats:
+    if "attempt_rate" in selected_stats:
         attempts_per_student = df_filtered.groupby(['quizID', 'email']).size().reset_index(name='attempt_count')
         average_attempts_per_student = attempts_per_student.groupby('quizID')['attempt_count'].mean().reset_index()
-        average_attempts_per_student.columns = ['quizID', 'Rate_of_Attempt']
+        average_attempts_per_student.columns = ['quizID', 'attempt_rate']
         dfs.append(average_attempts_per_student)
     
     if dfs:
@@ -251,19 +230,19 @@ if show_summary:
         # Display checkboxes for selecting statistics
         selected_stats = st.sidebar.multiselect(
             "Select Statistics to Display",
-            ["Students", "Mean Grade", "Variance Grade", "Mean Highest Grade", "#No Attempts", "Rate of Attempt"],
-            default=["Students", "Mean Grade", "Variance Grade", "Mean Highest Grade", "#No Attempts", "Rate of Attempt"]
+            ["student_count", "attempt_rate", "mean_grade", "grade_variance", "mean_highest_grade", "attempt_count"],
+            default=["student_count", "attempt_rate", "mean_grade", "grade_variance", "mean_highest_grade", "attempt_count"]
         )
 
     # Generate and display quiz statistics based on selected options
         # Add summary notes based on selected statistics
         summary_notes = {
-            "Students": "- **Students:** This is the number of students who attempted each quiz. This count helps us understand how many students engaged with each quiz and can highlight which quizzes were more popular or challenging.\n",
-            "Mean Grade": "- **Mean Grade:** The average score for each quiz. It is calculated by adding all the grades for a quiz and dividing by the number of students who took it. This helps gauge the overall performance of students on each quiz.\n",
-            "Variance Grade": "- **Variance in Grade:** Measures how much the scores differ from the average. It’s computed by looking at how spread out the grades are. A high variance indicates a wide range of scores, meaning some students did much better or worse than others.\n",
-            "Mean Highest Grade": "- **Mean Highest Grade:** This indicates the average of the highest grades achieved by each student in a quiz. It’s calculated by first finding the highest grade each student achieved in a quiz and then averaging these highest grades across all students. This shows how well students could perform at their best in each quiz.\n",
-            "#No Attempts": "- **#No Attempts:** This table shows the total number of attempts made across all students for each quiz. It is computed by counting all attempts made for each quiz, regardless of the student. This helps us understand the total level of engagement with each quiz.\n",
-            "Rate of Attempt": "- **Rate of Attempt:** Represents the average number of attempts made by each student across all quizzes. It’s calculated by first counting how many attempts each student made in total and then averaging these numbers. This provides insight into how often students are retrying quizzes.\n",
+            "student_count": "- **student_count:** how many different students attempted each quiz.\n",
+            "attempt_rate": "- **attempt_rate:** the average number of attempts per student for each quiz.\n",
+            "mean_grade": "- **mean_grade:** the average score for each quiz.\n",
+            "grade_variance": "- **grade_variance:** how spread out the grades are for each quiz.\n",
+            "mean_highest_grade": "- **mean_highest_grade:** the average best score each student reached in a quiz.\n",
+            "attempt_count": "- **attempt_count:** the total number of attempts made on each quiz.\n",
         }
 
         summary_text = " ".join([summary_notes[stat] for stat in selected_stats])
@@ -285,7 +264,7 @@ if st.sidebar.checkbox("Quiz Grade Distribution (Box plot)", False):
         st.write("""
         - **Box Plot:** Shows how grades are spread out for each quiz, showcasing where most grades fall.
         - **Median:** The green line marks the middle value of grades for each quiz.
-        - **Mean Grade Line:** The red line shows the average grade for each quiz. It helps you see if the average grade is going up or down across quizzes.
+        - **mean_grade line:** The red line shows the average grade for each quiz. It helps you see if the average grade is going up or down across quizzes.
         """)
         # Create box plot with custom median line color
         box_plot = sns.boxplot(x='quizID', y='grade', data=df_filtered, palette='Set3',
@@ -298,7 +277,7 @@ if st.sidebar.checkbox("Quiz Grade Distribution (Box plot)", False):
         means = df_filtered.groupby('quizID')['grade'].mean().reset_index()
         
         # Plot the means as a line
-        plt.plot(means['quizID'].astype(int) - 1, means['grade'], marker='o', color='#FF474C', linestyle='-', linewidth=2, label='Mean Grade')
+        plt.plot(means['quizID'].astype(int) - 1, means['grade'], marker='o', color='#FF474C', linestyle='-', linewidth=2, label='mean_grade')
         
         plt.title('Grade Distribution')
         plt.xlabel('Quiz ID')
@@ -440,49 +419,41 @@ if st.sidebar.checkbox("Line Graph of Various Metrics"):
     # Display checkboxes for selecting metrics
     selected_metrics = st.sidebar.multiselect(
         "Select Metrics to Display",
-        ["No. of Students", "Rate of Attempts", "Mean Grade", "Variance Grade"],
-        default=["No. of Students", "Rate of Attempts", "Mean Grade", "Variance Grade"]
+        ["student_count", "attempt_rate", "mean_grade", "grade_variance"],
+        default=["student_count", "attempt_rate", "mean_grade", "grade_variance"]
     )
 
     if selected_metrics:
         # Explanation of the selected metrics
 
-        if "No. of Students" in selected_metrics:
-            st.write("""
-            **No. of Students**: This metric shows the number of unique students who attempted each quiz. It helps in identifying the level of participation in each quiz. A higher number indicates better engagement.
-            """)
+        if "student_count" in selected_metrics:
+            st.write("student_count: number of unique students who attempted each quiz.")
 
-        if "Rate of Attempts" in selected_metrics:
-            st.write("""
-            **Rate of Attempts**: This metric calculates the average number of attempts per student for each quiz. It is useful to understand how many times students are trying to improve their scores or revisit the quiz. A higher rate may indicate challenging quizzes or dedicated students who are aiming for better scores.
-            """)
+        if "attempt_rate" in selected_metrics:
+            st.write("attempt_rate: average number of attempts per student for each quiz.")
 
-        if "Mean Grade" in selected_metrics:
-            st.write("""
-            **Mean Grade**: This metric provides the average grade for each quiz. It is a direct indicator of the overall performance of students in the quiz. Monitoring this metric can help identify if a particular quiz was too easy or too difficult based on the average performance.
-            """)
+        if "mean_grade" in selected_metrics:
+            st.write("mean_grade: average score for each quiz.")
 
-        if "Variance Grade" in selected_metrics:
-            st.write("""
-            **Variance Grade**: This metric shows the variance in grades for each quiz. Variance indicates how spread out the grades are. A higher variance means there is a wider range of grades, suggesting diverse performance levels among students. A lower variance indicates that students performed similarly.
-            """)
+        if "grade_variance" in selected_metrics:
+            st.write("grade_variance: how spread out the grades are for each quiz.")
 
         # Function to generate data for the line graph
         def generate_line_graph_data(df, selected_metrics):
             data = {}
 
-            if "No. of Students" in selected_metrics:
-                data["No. of Students"] = df.groupby('quizID')['email'].nunique()
+            if "student_count" in selected_metrics:
+                data["student_count"] = df.groupby('quizID')['email'].nunique()
 
-            if "Rate of Attempts" in selected_metrics:
+            if "attempt_rate" in selected_metrics:
                 attempts_per_student = df.groupby(['quizID', 'email']).size().reset_index(name='attempt_count')
-                data["Rate of Attempts"] = attempts_per_student.groupby('quizID')['attempt_count'].mean()
+                data["attempt_rate"] = attempts_per_student.groupby('quizID')['attempt_count'].mean()
 
-            if "Mean Grade" in selected_metrics:
-                data["Mean Grade"] = df.groupby('quizID')['grade'].mean()
+            if "mean_grade" in selected_metrics:
+                data["mean_grade"] = df.groupby('quizID')['grade'].mean()
 
-            if "Variance Grade" in selected_metrics:
-                data["Variance Grade"] = df.groupby('quizID')['grade'].var()
+            if "grade_variance" in selected_metrics:
+                data["grade_variance"] = df.groupby('quizID')['grade'].var()
 
             return pd.DataFrame(data).reset_index()
         if not df_filtered.empty:
@@ -507,3 +478,4 @@ if st.sidebar.checkbox("Line Graph of Various Metrics"):
         
     else:
         st.write("You need to upload a file(s) to initiate the analysis.")
+

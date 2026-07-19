@@ -40,7 +40,7 @@ poetry install
 #### 2. Run the Streamlit app
 From the `streamlit_demo` directory, run:
 ```
-streamlit run pages/Home.py
+streamlit run Home.py
 ```
 
 If you plan to use the full quiz analytics page, make sure the environment also includes `altair` and `xlrd`, since the Streamlit code imports them.
