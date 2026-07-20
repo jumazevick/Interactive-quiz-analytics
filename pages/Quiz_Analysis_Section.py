@@ -349,7 +349,7 @@ if st.sidebar.checkbox("Scatter plot: Attempts vs Grades"):
             y_label = "Average Grade"
             title = "Attempts vs Average Grade"
 
-        merged_data = pd.merge(quiz_attempt_count, grade_data, on=["quizID", "email"])
+        merged_data = pd.merge(quiz_attempt_count, grade_data, on=["quizID", "student_id"])
         correlation = merged_data["attempt_count"].corr(merged_data["grade"])
         st.write(f"Correlation between Attempts and Quiz {y_label}: r = {correlation:.2f}")
 
