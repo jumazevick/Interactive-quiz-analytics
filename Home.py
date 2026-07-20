@@ -1,9 +1,8 @@
 import streamlit as st
 
-# Set page configuration
-st.set_page_config(page_title="Home", page_icon="📊")
 
-# Main title and header
+st.set_page_config(page_title="Home", page_icon=":bar_chart:")
+
 st.title("Home")
 st.header("Moodle STACK Analytics Hub")
 st.subheader("Streamlining Data Analysis for Moodle STACK")
@@ -12,8 +11,8 @@ st.page_link("pages/Quiz_Analysis_Section.py", label="Quiz Analysis Section")
 
 st.markdown(
     """
-This was a Hackathon project - thanks to Sage for helping with the technical setup.
-It's still a work in progress. If you notice any bugs, please create a PR on GitHub.
+This was a Hackathon project, thanks to Sage for helping with the technical setup.
+It is still a work in progress. If you notice any bugs, please create a PR on GitHub.
 
 Below is an intro video explaining the project idea:
 """
@@ -23,16 +22,16 @@ st.video("https://youtu.be/Ww_FrryExYc?si=x-yeDCqGgUhDjFMb")
 
 st.markdown(
     """
-**📘 About this Tool**
+**About this Tool**
 
-This dashboard allows you to upload and analyze **Moodle STACK quiz data**:
+This dashboard allows you to upload and analyze Moodle STACK quiz data:
 
-📊 Supports `.csv`, `.xls`, `.xlsx` file formats  
-🔍 Automatically detects and normalizes grades  
-🕒 Parses quiz start/end times and time taken  
-📈 Visualizes quiz performance and trends  
+- Supports `.csv`, `.xls`, `.xlsx` file formats
+- Automatically detects and normalizes grades
+- Parses quiz start and end times and time taken
+- Visualizes quiz performance and trends
 
-You need to upload your quiz files using the **file uploader on the left side**.
+You need to upload your quiz files using the file uploader on the left side.
 """
 )
 
@@ -40,7 +39,7 @@ st.markdown(
     """
 ---
 
-### 📥 How to Export Quiz Attempt Data from Moodle
+### How to Export Quiz Attempt Data from Moodle
 
 To use this dashboard, first download your Moodle quiz attempt data:
 
@@ -52,7 +51,7 @@ To use this dashboard, first download your Moodle quiz attempt data:
 6. Choose `.CSV`, `.XLS`, or `.XLSX` and download the file.
 7. Upload the file in the quiz analysis section.
 
-### ✅ Required Columns Format
+### Required Columns Format
 
 Make sure your file includes these columns exactly as named:
 
@@ -60,7 +59,7 @@ Make sure your file includes these columns exactly as named:
 
 Moodle setups can vary, so if your columns are named differently, you may need to rename them before uploading.
 
-Example files to test or adapt are available here:  
-👉 [Sample Moodle Quiz Files](https://drive.google.com/drive/folders/1r7c1asoMFwaLORaQVKisJk7xpWazzC5I?usp=sharing)
+Example files to test or adapt are available here:
+[Sample Moodle Quiz Files](https://drive.google.com/drive/folders/1r7c1asoMFwaLORaQVKisJk7xpWazzC5I?usp=sharing)
 """
 )
