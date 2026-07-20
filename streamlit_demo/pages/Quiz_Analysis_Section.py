@@ -6,6 +6,9 @@ from datetime import datetime, timedelta
 import re
 import altair as alt
 
+# Page configuration
+st.set_page_config(page_title="Quiz Analysis Section", page_icon="📈")
+
 # Initialize an empty dataframe
 df_filtered = pd.DataFrame()
 
@@ -94,7 +97,8 @@ def load_data(uploaded_files):
 
 
 # Streamlit app setup
-st.title("Moodle STACK Analytics")
+st.title("Quiz Analysis Section")
+st.header("Moodle STACK Analytics")
 
 st.markdown("""
 This section is for analyzing uploaded Moodle STACK quiz files.

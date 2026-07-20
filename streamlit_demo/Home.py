@@ -1,18 +1,21 @@
 import streamlit as st
 
 # Set page configuration
-st.set_page_config(page_title="STACK Analytics Hub", page_icon="📊")
+st.set_page_config(page_title="Home", page_icon="📊")
 
 # Main title and header
-st.title("Moodle STACK Analytics Hub")
-st.header("Streamlining Data Analysis for Moodle STACK")
+st.title("Home")
+st.header("Moodle STACK Analytics Hub")
+st.subheader("Streamlining Data Analysis for Moodle STACK")
+
+st.page_link("pages/Quiz_Analysis_Section.py", label="Quiz Analysis Section")
 
 st.markdown(
     """
-This was a Hackathon project — thanks to Sage for helping with the technical setup.
+This was a Hackathon project - thanks to Sage for helping with the technical setup.
 It's still a work in progress. If you notice any bugs, please create a PR on GitHub.
 
-🎥 Below is an intro video explaining the project idea:
+Below is an intro video explaining the project idea:
 """
 )
 
