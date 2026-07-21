@@ -17,14 +17,29 @@ once the analysis code is provided.
 """
 )
 
-uploaded_file = st.file_uploader(
+uploaded_file = st.sidebar.file_uploader(
     "Upload question results file",
     type=["csv", "xls", "xlsx"],
     help="Upload a Moodle question results export in CSV, XLS, or XLSX format.",
 )
 
+st.sidebar.title("Options")
+
+placeholder_sections = {
+    "Question Summary": "A summary of question-level performance will appear here.",
+    "Question Difficulty Analysis": "Question difficulty and discrimination analysis will appear here.",
+    "Question Response Distribution": "Response distributions for each question will appear here.",
+    "Student Performance by Question": "Student performance comparisons by question will appear here.",
+    "Question Metrics": "Additional question-level metrics and visualizations will appear here.",
+}
+
 if uploaded_file is None:
     st.info("Upload a question results file to begin.")
 else:
     st.success(f"File uploaded: {uploaded_file.name}")
-    st.caption("Question analysis will appear here when the analysis code is added.")
+
+for section_name, placeholder_text in placeholder_sections.items():
+    if st.sidebar.checkbox(section_name):
+        st.subheader(section_name)
+        st.info(placeholder_text)
+        st.caption("Placeholder — analysis code will be added here.")
