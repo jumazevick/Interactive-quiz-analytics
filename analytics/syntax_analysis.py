@@ -10,14 +10,29 @@ def compute_syntax_analysis(response_df: pd.DataFrame) -> pd.DataFrame:
 
     summary = []
     for question, group in response_df.groupby("question"):
-        syntax_rows = group[group["response_status"] == "syntax_error"]
+        syntax_rows = group[group["response_status"] == "invalid"]
         count = int(len(syntax_rows))
         percentage = round(float(count / len(group) * 100), 2) if len(group) else 0.0
-        mistakes = []
-        for text in syntax_rows["response_text"].astype(str).tolist():
-            if text.strip() and text.strip() != "!":
-                mistakes.append(text)
-        common_mistakes = ", ".join(mistakes[:3]) if mistakes else "-"
-        summary.append({"question": question, "syntax_error_count": count, "percentage": percentage, "common_mistakes": common_mistakes})
+
+        # Collect invalid expressions
+        invalid_exprs = []
+        for _, row in syntax_rows.iterrows():
+            ans_list = row.get("ans_list", [])
+            for ans in ans_list:
+                if ans["tag"] == "invalid" and ans["expression"]:
+                    invalid_exprs.append(ans["expression"])
+
+        # Top 3 mistakes
+        from collections import Counter
+        counts = Counter(invalid_exprs)
+        most_common = [expr for expr, _ in counts.most_common(3)]
+        common_mistakes = ", ".join(most_common) if most_common else "-"
+
+        summary.append({
+            "question": question,
+            "syntax_error_count": count,
+            "percentage": percentage,
+            "common_mistakes": common_mistakes
+        })
 
     return pd.DataFrame(summary).sort_values("question").reset_index(drop=True)

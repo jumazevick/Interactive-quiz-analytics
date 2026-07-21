@@ -41,105 +41,154 @@ def normalize_question_columns(df: pd.DataFrame) -> pd.DataFrame:
     return normalized_df
 
 
+def parse_response_cell(cell_text: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Parse a single Response cell to extract ansK and prtK values."""
+    if pd.isna(cell_text) or not isinstance(cell_text, str):
+        return [], []
+
+    # 1. Parse ans fields: ansK: expression [tag]
+    ans_matches = re.finditer(r"ans(\d+):\s*(.*?)\s*\[(score|valid|invalid)\]", cell_text)
+    ans_list = []
+    for m in ans_matches:
+        ans_list.append({
+            "index": int(m.group(1)),
+            "expression": m.group(2).strip(),
+            "tag": m.group(3)
+        })
+
+    # 2. Parse prt fields: prtK: ! OR prtK: # = fraction | note1 | note2...
+    prt_matches = re.finditer(r"prt(\d+):\s*(!|# = ([0-9.]+))(?:\s*\|\s*([^;]*))?", cell_text)
+    prt_list = []
+    for m in prt_matches:
+        idx = int(m.group(1))
+        val = m.group(2)
+        fraction = None
+        answer_note = "(invalid/blank input)"
+
+        if val != "!":
+            fraction = float(m.group(3))
+            notes_str = m.group(4)
+            if notes_str:
+                tokens = [t.strip() for t in notes_str.split("|") if t.strip()]
+                if tokens:
+                    answer_note = tokens[-1]
+                else:
+                    answer_note = ""
+            else:
+                answer_note = ""
+
+        prt_list.append({
+            "index": idx,
+            "fraction": fraction,
+            "answer_note": answer_note
+        })
+
+    return ans_list, prt_list
+
+
 def build_response_rows(df: pd.DataFrame, quiz_name: str) -> pd.DataFrame:
     """Convert a Moodle export into a flattened question-response table."""
+    # Row filtering: Drop any row where State is not exactly "Finished"
+    state_cols = [col for col in df.columns if col.strip().lower() == "state"]
+    if state_cols:
+        df = df[df[state_cols[0]].astype(str).str.strip() == "Finished"]
+
     if df.empty:
-        return pd.DataFrame(columns=["student_id", "student_name", "question", "grade", "max_grade", "response_status", "response_text", "quiz_name"])
+        return pd.DataFrame(columns=[
+            "student_id", "student_name", "question", "grade", "max_grade",
+            "response_status", "response_text", "quiz_name", "ans_list",
+            "prt_list", "overall_grade", "attempt_idx"
+        ])
 
-    normalized_df = normalize_question_columns(df)
-    headers = list(normalized_df.columns)
+    # Identify response columns (Response 1 ... Response N)
+    response_cols = [col for col in df.columns if re.match(r"^Response\s*\d+", col, re.IGNORECASE)]
+    if not response_cols:
+        # Fallback to general question columns if not response-based
+        response_cols = [col for col in df.columns if re.match(r"^(?:Q|Question|q)\.?\s*\d+", col, re.IGNORECASE)]
 
-    question_numbers = []
-    for header in headers:
-        match = re.match(r"^(?:Q|Question|q)\.?\s*(\d+)", header)
-        if match:
-            question_numbers.append(int(match.group(1)))
-            continue
-        match = re.match(r"^Response\s*(\d+)", header)
-        if match:
-            question_numbers.append(int(match.group(1)))
+    def get_col_number(col):
+        m = re.search(r"\d+", col)
+        return int(m.group(0)) if m else 0
 
-    question_numbers = sorted(set(question_numbers))
-    records: list[dict[str, Any]] = []
+    response_cols = sorted(response_cols, key=get_col_number)
 
-    for index, row in normalized_df.iterrows():
-        state_value = str(row.get("State", "")).strip().lower()
-        if state_value and state_value != "finished":
-            continue
+    # Determine M (number of PRT parts) for each question column
+    M_dict = {}
+    for col in response_cols:
+        max_k = 1
+        for cell in df[col].dropna():
+            _, prt_list = parse_response_cell(str(cell))
+            for prt in prt_list:
+                if prt["index"] > max_k:
+                    max_k = prt["index"]
+        M_dict[col] = max_k
 
+    # Identify the Grade column (e.g. Grade/10.00)
+    grade_col = None
+    for col in df.columns:
+        if re.match(r"^Grade/\d+", col, re.IGNORECASE):
+            grade_col = col
+            break
+
+    records = []
+    for index, row in df.iterrows():
         student_id = row.get("Email address") or row.get("anonymized_full_name") or f"student_{index}"
-        student_name = f"{row.get('First name', '')} {row.get('Surname', '')}".strip() or "Anonymized Student"
+        first_name = row.get("First name", "")
+        surname = row.get("Surname") or row.get("Last name") or ""
+        student_name = f"{first_name} {surname}".strip() or "Anonymized Student"
 
-        for question_number in question_numbers:
-            question_label = f"Q{question_number}"
-            response_text = ""
-            response_col = None
-            for header in headers:
-                if re.match(rf"^response\s*0*{question_number}$", header, flags=re.IGNORECASE):
-                    response_col = header
-                    break
-                if re.match(rf"^(?:Q|Question|q)\.?\s*0*{question_number}\s*response", header, flags=re.IGNORECASE):
-                    response_col = header
-                    break
-                if re.match(rf"^q0*{question_number}_response", header, flags=re.IGNORECASE):
-                    response_col = header
-                    break
-                if re.match(rf"^q0*{question_number}:response", header, flags=re.IGNORECASE):
-                    response_col = header
-                    break
+        overall_grade = 0.0
+        if grade_col:
+            val = pd.to_numeric(row.get(grade_col), errors="coerce")
+            if pd.notna(val):
+                overall_grade = float(val)
 
-            if response_col:
-                response_text = str(row.get(response_col, "")).strip()
+        for col in response_cols:
+            q_num = get_col_number(col)
+            question_label = f"Q{q_num}"
+            cell_text = str(row[col]) if pd.notna(row[col]) else ""
 
-            grade_col = None
-            for header in headers:
-                if re.match(rf"^(?:Q|Question|q)\.?\s*0*{question_number}\s*(?:\/|$)", header, flags=re.IGNORECASE):
-                    grade_col = header
-                    break
-                if re.match(rf"^(?:Q|Question|q)\.?\s*0*{question_number}_grade", header, flags=re.IGNORECASE):
-                    grade_col = header
-                    break
-                if re.match(rf"^q0*{question_number}:grade", header, flags=re.IGNORECASE):
-                    grade_col = header
-                    break
+            ans_list, prt_list = parse_response_cell(cell_text)
 
-            grade = 0.0
-            max_grade = 1.0
-            if grade_col:
-                max_match = re.search(r"/(\d+(?:\.\d+)?)", grade_col)
-                if max_match:
-                    max_grade = float(max_match.group(1))
-                grade_value = pd.to_numeric(row.get(grade_col), errors="coerce")
-                if pd.notna(grade_value):
-                    grade = float(grade_value)
+            is_blank = len(ans_list) == 0
+            is_invalid = any(ans["tag"] == "invalid" for ans in ans_list)
 
-            response_status = classify_response_status(response_text, grade, max_grade)
+            # Score computation: mean over all PRTs K of (prtK.fraction or 0.0)
+            M = M_dict[col]
+            prt_map = {prt["index"]: prt for prt in prt_list}
+            prt_fractions = []
+            for k in range(1, M + 1):
+                if k in prt_map and prt_map[k]["fraction"] is not None:
+                    prt_fractions.append(prt_map[k]["fraction"])
+                else:
+                    prt_fractions.append(0.0)
 
-            records.append(
-                {
-                    "student_id": str(student_id),
-                    "student_name": student_name,
-                    "question": question_label,
-                    "grade": grade,
-                    "max_grade": max_grade,
-                    "response_status": response_status,
-                    "response_text": response_text,
-                    "quiz_name": quiz_name,
-                }
-            )
+            q_score = sum(prt_fractions) / M if M > 0 else 0.0
+
+            # Classification
+            if is_blank:
+                response_status = "blank"
+            elif is_invalid:
+                response_status = "invalid"
+            elif q_score == 1.0:
+                response_status = "correct"
+            else:
+                response_status = "incorrect"
+
+            records.append({
+                "student_id": str(student_id),
+                "student_name": student_name,
+                "question": question_label,
+                "grade": q_score,
+                "max_grade": 1.0,
+                "response_status": response_status,
+                "response_text": cell_text,
+                "quiz_name": quiz_name,
+                "ans_list": ans_list,
+                "prt_list": prt_list,
+                "overall_grade": overall_grade,
+                "attempt_idx": index,
+            })
 
     return pd.DataFrame(records)
 
-
-def classify_response_status(response_text: str, grade: float, max_grade: float) -> str:
-    """Classify a response into a coarse outcome category."""
-    text = response_text.strip().lower()
-    if "syntax" in text or "error" in text or response_text.strip() == "!":
-        return "syntax_error"
-    if "[invalid]" in text or "invalid" in text:
-        return "invalid"
-    if response_text.strip() == "":
-        return "blank"
-    if max_grade > 0 and grade >= max_grade * 0.9:
-        return "correct"
-    return "incorrect"

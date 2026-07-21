@@ -14,6 +14,12 @@ def compute_question_metrics(response_df: pd.DataFrame) -> pd.DataFrame:
             columns=[
                 "question",
                 "attempts",
+                "students",
+                "invalid_rate",
+                "blank_rate",
+                "reattempt_share",
+                "facility",
+                "partial_credit_mean",
                 "avg_score",
                 "percent_correct",
                 "percent_incorrect",
@@ -21,43 +27,78 @@ def compute_question_metrics(response_df: pd.DataFrame) -> pd.DataFrame:
                 "percent_invalid",
                 "syntax_error_count",
                 "syntax_error_percent",
+                "scaled_score",
+                "catch_all_share",
             ]
         )
+
+    # Precompute reattempt share
+    student_counts = response_df.groupby("student_id")["attempt_idx"].nunique()
+    extra_attempts = sum(c - 1 for c in student_counts if c > 1)
+    total_attempts_overall = response_df["attempt_idx"].nunique()
+    reattempt_share_val = round(float(extra_attempts / total_attempts_overall * 100), 2) if total_attempts_overall > 0 else 0.0
 
     grouped = response_df.groupby("question")
     metrics = []
     for question, rows in grouped:
         attempts = len(rows)
-        avg_score = float(rows["grade"].mean()) if attempts else 0.0
-        raw_score = rows["grade"].to_numpy(dtype=float)
-        max_grade = rows["max_grade"].replace(0, np.nan).to_numpy(dtype=float)
-        scaled_scores = np.divide(raw_score, max_grade, out=np.zeros_like(raw_score, dtype=float), where=max_grade > 0)
-        scaled_scores *= 10.0
+        students = int(rows["student_id"].nunique())
 
         correct_count = int((rows["response_status"] == "correct").sum())
         incorrect_count = int((rows["response_status"] == "incorrect").sum())
-        syntax_error_count = int((rows["response_status"] == "syntax_error").sum())
-        invalid_count = int(((rows["response_status"] == "invalid") | (rows["response_status"] == "syntax_error")).sum())
+        invalid_count = int((rows["response_status"] == "invalid").sum())
         blank_count = int((rows["response_status"] == "blank").sum())
 
-        percent_correct = round(correct_count / attempts * 100, 2) if attempts else 0.0
-        percent_incorrect = round(incorrect_count / attempts * 100, 2) if attempts else 0.0
-        percent_valid = round((attempts - invalid_count - blank_count) / attempts * 100, 2) if attempts else 0.0
-        percent_invalid = round(invalid_count / attempts * 100, 2) if attempts else 0.0
-        syntax_error_percent = round(syntax_error_count / attempts * 100, 2) if attempts else 0.0
+        facility = correct_count / attempts if attempts else 0.0
+        invalid_rate = invalid_count / attempts if attempts else 0.0
+        blank_rate = blank_count / attempts if attempts else 0.0
+        partial_credit_mean = float(rows["grade"].mean()) if attempts else 0.0
+
+        percent_correct = round(facility * 100, 2)
+        percent_incorrect = round((1 - facility) * 100, 2)
+        percent_valid = round((1 - invalid_rate - blank_rate) * 100, 2)
+        percent_invalid = round(invalid_rate * 100, 2)
+        syntax_error_count = invalid_count
+        syntax_error_percent = percent_invalid
+
+        # M and catch-all share
+        M = max([prt["index"] for prt_list in rows["prt_list"] for prt in prt_list] + [1])
+        wrong_rows = rows[rows["grade"] < 1.0]
+        total_wrong_notes = 0
+        catch_all_notes = 0
+        for _, row in wrong_rows.iterrows():
+            prt_list = row.get("prt_list", [])
+            prt_map = {prt["index"]: prt for prt in prt_list}
+            for k in range(1, M + 1):
+                note = "(invalid/blank input)"
+                if k in prt_map:
+                    note = prt_map[k]["answer_note"]
+
+                total_wrong_notes += 1
+                if re.match(r"^prt\d+-\d+-[TF]$", note):
+                    catch_all_notes += 1
+
+        catch_all_share = round(float(catch_all_notes / total_wrong_notes * 100), 2) if total_wrong_notes > 0 else 0.0
 
         metrics.append(
             {
                 "question": question,
                 "attempts": attempts,
-                "avg_score": round(float(avg_score), 2),
+                "students": students,
+                "invalid_rate": round(invalid_rate, 4),
+                "blank_rate": round(blank_rate, 4),
+                "reattempt_share": reattempt_share_val,
+                "facility": round(facility, 4),
+                "partial_credit_mean": round(partial_credit_mean, 4),
+                "avg_score": round(facility * 10.0, 2),  # avg_score displays facility * 10
                 "percent_correct": percent_correct,
                 "percent_incorrect": percent_incorrect,
                 "percent_valid": percent_valid,
                 "percent_invalid": percent_invalid,
                 "syntax_error_count": syntax_error_count,
                 "syntax_error_percent": syntax_error_percent,
-                "scaled_score": round(float(scaled_scores.mean()), 2) if attempts else 0.0,
+                "scaled_score": round(partial_credit_mean * 10.0, 2),
+                "catch_all_share": catch_all_share,
             }
         )
 
@@ -98,11 +139,16 @@ def compute_question_summary(response_df: pd.DataFrame, prt_frame: pd.DataFrame 
 
     most_difficult_question = question_metrics.sort_values(["scaled_score", "percent_correct", "attempts"], ascending=[True, True, False]).iloc[0]["question"] if not question_metrics.empty else "-"
 
-    prt_element_count = int(prt_frame.shape[0]) if prt_frame is not None and not prt_frame.empty else int(question_metrics.shape[0])
+    # Find total unique PRT index elements across all questions
+    overall_prts = 0
+    grouped = response_df.groupby("question")
+    for _, rows in grouped:
+        M = max([prt["index"] for prt_list in rows["prt_list"] for prt in prt_list] + [1])
+        overall_prts += M
 
     return {
         "total_questions": int(question_metrics["question"].nunique()),
-        "overall_prt_elements": prt_element_count,
+        "overall_prt_elements": overall_prts,
         "most_difficult_question": most_difficult_question,
         "syntax_error_count": int(question_metrics["syntax_error_count"].sum()),
         "average_score": round(float(question_metrics["avg_score"].mean()), 2),
