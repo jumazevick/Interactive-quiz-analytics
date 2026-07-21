@@ -1,0 +1,8 @@
+{
+  "name": "Moodle STACK Quiz Analytics",
+  "description": "Streamline data analysis for Moodle STACK quiz attempts and grades.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
