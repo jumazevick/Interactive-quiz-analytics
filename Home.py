@@ -8,6 +8,7 @@ st.header("Moodle STACK Analytics Hub")
 st.subheader("Streamlining Data Analysis for Moodle STACK")
 
 st.page_link("pages/Quiz_Analysis_Section.py", label="Quiz Analysis Section")
+st.page_link("pages/Question_Analysis_Section.py", label="Question Analysis Section")
 
 st.markdown(
     """
