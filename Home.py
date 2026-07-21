@@ -3,64 +3,79 @@ import streamlit as st
 
 st.set_page_config(page_title="Home", page_icon=":bar_chart:")
 
-st.title("Home")
-st.header("Moodle STACK Analytics Hub")
-st.subheader("Streamlining Data Analysis for Moodle STACK")
+st.title("Interactive Quiz & Question Analytics")
+st.subheader("Analyse Moodle STACK quiz results, calculate quiz and question-level statistics, explore Potential Response Trees (PRTs), and identify common student misconceptions.")
 
 st.page_link("pages/Quiz_Analysis_Section.py", label="Quiz Analysis Section")
 st.page_link("pages/Question_Analysis_Section.py", label="Question Analysis Section")
 
+st.markdown("---")
 st.markdown(
     """
-This was a Hackathon project, thanks to Sage for helping with the technical setup.
-It is still a work in progress. If you notice any bugs, please create a PR on GitHub.
+### How to Export Quiz Attempt Data from Moodle
 
-Below is an intro video explaining the project idea:
+Follow these steps to download the datasets needed for the analytics workflow.
+
+#### 1. Navigate to your quiz
+Click into the specific STACK or standard Moodle quiz in your course workspace.
+
+#### 2. Open quiz results
+Select "Results" from the quiz secondary menu or settings menu.
+
+#### 3. Choose a report type
+Select either "Grades" or "Responses" depending on whether you want quiz-level or question-level analysis.
+
+#### 4. Download table data
+Scroll to the bottom of the page, choose Comma Separated Values (.csv) or Microsoft Excel (.xlsx), and click "Download".
+
+### A. Quiz Analysis Only
+Use the standard **Grades** export for overall grade trends, box plots, and scatter charts.
+The downloaded spreadsheet should contain these columns:
+
+- Surname
+- First name
+- Email address
+- State
+- Started on
+- Completed
+- Time taken
+- Grade/10.00
+
+### B. Question & PRT Analysis
+Use the **Responses** export for question-level metrics, response distributions, and PRT analysis.
+This report includes the same metadata columns above, plus a response column for each question item.
+
+- Response 1
+- Response 2
+- Response 3
+- ...
+- Response N
+"""
+)
+
+st.markdown("---")
+st.markdown(
+    """
+### Sample Data
+You can experiment with the provided sample exports to explore the dashboard before using your own Moodle exports.
+"""
+)
+
+st.markdown("---")
+st.markdown(
+    """
+### Project Information
+This was originally developed as a Hackathon project.
+
+Special thanks to:
+- Sage for the technical setup.
+- Ernest and Otis for the question analysis research and implementation.
+
+The project is still a work in progress.
+If you discover bugs or have suggestions for improvements, please open a Pull Request on GitHub.
+
+Below is an introductory video explaining the project and its goals:
 """
 )
 
 st.video("https://youtu.be/Ww_FrryExYc?si=x-yeDCqGgUhDjFMb")
-
-st.markdown(
-    """
-**About this Tool**
-
-This dashboard allows you to upload and analyze Moodle STACK quiz data:
-
-- Supports `.csv`, `.xls`, `.xlsx` file formats
-- Automatically detects and normalizes grades
-- Parses quiz start and end times and time taken
-- Visualizes quiz performance and trends
-
-You need to upload your quiz files using the file uploader on the left side.
-"""
-)
-
-st.markdown(
-    """
----
-
-### How to Export Quiz Attempt Data from Moodle
-
-To use this dashboard, first download your Moodle quiz attempt data:
-
-1. Log in to your Moodle course as a teacher or admin.
-2. Navigate to the specific quiz you want to analyze.
-3. Click on "Results" in the quiz menu.
-4. Select "Grades" to see a list of attempts for all students.
-5. Scroll to the bottom of the table and look for "Download table data as".
-6. Choose `.CSV`, `.XLS`, or `.XLSX` and download the file.
-7. Upload the file in the quiz analysis section.
-
-### Required Columns Format
-
-Make sure your file includes these columns exactly as named:
-
-**Surname, First name, Email address, State, Started on, Completed, Time taken, Grade/10.00**
-
-Moodle setups can vary, so if your columns are named differently, you may need to rename them before uploading.
-
-Example files to test or adapt are available here:
-[Sample Moodle Quiz Files](https://drive.google.com/drive/folders/1r7c1asoMFwaLORaQVKisJk7xpWazzC5I?usp=sharing)
-"""
-)

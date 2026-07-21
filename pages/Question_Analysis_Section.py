@@ -11,6 +11,7 @@ from analytics.question_metrics import compute_question_metrics, compute_questio
 from analytics.response_analysis import compute_response_outcomes, compute_repeated_wrong_answers
 from analytics.summary import build_export_summary
 from analytics.syntax_analysis import compute_syntax_analysis
+from analytics.validation import audit_question_data
 
 
 def build_question_analytics(response_df: pd.DataFrame, quiz_name: str) -> dict[str, object]:
@@ -91,7 +92,7 @@ if uploaded_files:
             selected_quiz_name = quiz_names[0]
 
         selected_df = response_df[response_df["quiz_name"] == selected_quiz_name].copy()
-        analytics = build_question_analytics(selected_df, selected_quiz_name)
+        analytics = build_question_analytics(selected_df, str(selected_quiz_name))
 
         st.success(f"Loaded {selected_quiz_name}")
 
@@ -104,79 +105,145 @@ if uploaded_files:
         repeated_wrong_answers = analytics["repeated_wrong_answers"]
         ranked_difficulty = analytics["ranked_difficulty"]
         export_summary = analytics["export_summary"]
+        validation = audit_question_data(selected_df)
 
-        st.metric("Total Questions", question_summary["total_questions"])
-        st.metric("Overall PRT Elements", question_summary["overall_prt_elements"])
-        st.metric("Most Difficult Question", question_summary["most_difficult_question"])
-        st.metric("Syntax Error Count", question_summary["syntax_error_count"])
-        st.metric("Average Score", f"{question_summary['average_score']:.2f}")
-        st.metric("Average Valid Submission Rate", f"{question_summary['average_valid_submission_rate']:.2f}%")
-        st.metric("Average Correct Rate", f"{question_summary['average_correct_rate']:.2f}%")
-        st.metric("Number of Students", question_summary["student_count"])
+        if not isinstance(question_summary, dict):
+            question_summary = dict(question_summary)
+        if not isinstance(question_metrics, pd.DataFrame):
+            question_metrics = pd.DataFrame(question_metrics)
+        if not isinstance(response_outcomes, pd.DataFrame):
+            response_outcomes = pd.DataFrame(response_outcomes)
+        if not isinstance(difficulty_metrics, pd.DataFrame):
+            difficulty_metrics = pd.DataFrame(difficulty_metrics)
+        if not isinstance(syntax_analysis, pd.DataFrame):
+            syntax_analysis = pd.DataFrame(syntax_analysis)
+        if not isinstance(prt_pass_rates, pd.DataFrame):
+            prt_pass_rates = pd.DataFrame(prt_pass_rates)
+        if not isinstance(repeated_wrong_answers, pd.DataFrame):
+            repeated_wrong_answers = pd.DataFrame(repeated_wrong_answers)
+        if not isinstance(ranked_difficulty, pd.DataFrame):
+            ranked_difficulty = pd.DataFrame(ranked_difficulty)
+        if not isinstance(export_summary, pd.DataFrame):
+            export_summary = pd.DataFrame(export_summary)
 
-        col1, col2 = st.columns(2)
-        with col1:
-            fig = px.bar(
-                response_outcomes,
-                x="question",
-                y=["correct_percent", "incorrect_percent"],
-                barmode="group",
-                labels={"value": "Percent", "question": "Question"},
-            )
-            fig.update_layout(title="Response Outcome Percentages")
+        st.caption("The report below groups question-level analytics into six educational analysis areas so the findings are easier to interpret.")
+
+        with st.container():
+            st.subheader("1. Question Summary")
+            st.caption("This section summarises how each question was used, including participation, attempts, and whether responses could be interpreted successfully.")
+            summary_metrics = [
+                ("Number of questions", question_summary["total_questions"]),
+                ("Number of students", question_summary["student_count"]),
+                ("Average score", f"{question_summary['average_score']:.2f}"),
+                ("Average valid submission rate", f"{question_summary['average_valid_submission_rate']:.2f}%"),
+                ("Average correct rate", f"{question_summary['average_correct_rate']:.2f}%"),
+                ("Syntax error count", question_summary["syntax_error_count"]),
+            ]
+            cols = st.columns(3)
+            for index, (label, value) in enumerate(summary_metrics):
+                with cols[index % 3]:
+                    st.metric(label, value)
+
+            st.dataframe(question_metrics[["question", "attempts", "avg_score", "percent_valid", "percent_invalid", "syntax_error_count"]].rename(columns={"avg_score": "average_score"}))
+
+        with st.container():
+            st.subheader("2. Question Difficulty Analysis")
+            st.caption("This section evaluates how difficult each question was and how effectively it separates stronger from weaker students.")
+            st.dataframe(ranked_difficulty.head(10))
+            st.dataframe(difficulty_metrics)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                fig = px.bar(
+                    ranked_difficulty.head(10),
+                    x="question",
+                    y="average_score",
+                    labels={"average_score": "Average score", "question": "Question"},
+                )
+                fig.update_layout(title="Top Difficult Questions by Average Score")
+                st.plotly_chart(fig, use_container_width=True)
+            with col2:
+                fig2 = px.box(question_metrics, x="question", y="scaled_score", labels={"scaled_score": "Scaled score", "question": "Question"})
+                fig2.update_layout(title="Score Distribution by Question")
+                st.plotly_chart(fig2, use_container_width=True)
+
+        with st.container():
+            st.subheader("3. Question Response Distribution")
+            st.caption("This section analyses how students answered each question, including common incorrect responses and potential misconceptions.")
+            col1, col2 = st.columns(2)
+            with col1:
+                fig = px.bar(
+                    response_outcomes,
+                    x="question",
+                    y=["correct_percent", "incorrect_percent"],
+                    barmode="group",
+                    labels={"value": "Percent", "question": "Question"},
+                )
+                fig.update_layout(title="Response Outcome Percentages")
+                st.plotly_chart(fig, use_container_width=True)
+            with col2:
+                valid_invalid = pd.DataFrame({
+                    "question": question_metrics["question"],
+                    "Valid %": question_metrics["percent_valid"],
+                    "Invalid/Syntax Error %": question_metrics["percent_invalid"],
+                })
+                fig2 = px.bar(
+                    valid_invalid,
+                    x="question",
+                    y=["Valid %", "Invalid/Syntax Error %"],
+                    barmode="group",
+                    labels={"value": "Percent", "question": "Question"},
+                )
+                fig2.update_layout(title="Valid vs Invalid Attempts")
+                st.plotly_chart(fig2, use_container_width=True)
+
+            st.dataframe(repeated_wrong_answers)
+
+            if not prt_pass_rates.empty:
+                heatmap_df = prt_pass_rates.pivot(index="question", columns="prt_name", values="pass_rate").fillna(0)
+                fig3 = px.imshow(
+                    heatmap_df,
+                    labels=dict(x="PRT", y="Question", color="Pass %"),
+                    color_continuous_scale=["#ef4444", "#fde68a", "#22c55e"],
+                )
+                fig3.update_layout(title="PRT Pass Heatmap")
+                st.plotly_chart(fig3, use_container_width=True)
+            else:
+                st.info("No PRT pass data available for this quiz.")
+
+        with st.container():
+            st.subheader("4. Student Performance by Question")
+            st.caption("This section compares student performance across questions to identify patterns of understanding and areas requiring further support.")
+            student_matrix = selected_df.pivot_table(index="student_id", columns="question", values="grade", aggfunc="mean").fillna(0)
+            st.dataframe(student_matrix)
+            fig = px.imshow(student_matrix, labels=dict(x="Question", y="Student", color="Score"), color_continuous_scale="Viridis")
+            fig.update_layout(title="Student-by-Question Performance Matrix")
             st.plotly_chart(fig, use_container_width=True)
 
-        with col2:
-            valid_invalid = pd.DataFrame({
-                "question": question_metrics["question"],
-                "Valid %": question_metrics["percent_valid"],
-                "Invalid/Syntax Error %": question_metrics["percent_invalid"],
-            })
-            fig2 = px.bar(
-                valid_invalid,
-                x="question",
-                y=["Valid %", "Invalid/Syntax Error %"],
-                barmode="group",
-                labels={"value": "Percent", "question": "Question"},
+        with st.container():
+            st.subheader("5. Question Metrics")
+            st.caption("This section provides a consolidated numerical summary of every question-level metric and serves as the primary exportable dataset.")
+            st.dataframe(question_metrics[["question", "attempts", "avg_score", "percent_correct", "percent_incorrect", "percent_valid", "percent_invalid", "syntax_error_count", "syntax_error_percent", "scaled_score"]].rename(columns={"avg_score": "average_score"}))
+
+        with st.container():
+            st.subheader("6. Interpretation Notes")
+            st.caption("Use these notes to interpret the charts, understand the metric definitions, and review caveats before making instructional decisions.")
+            st.write("Validation summary:")
+            st.write(validation["checks"])
+            if validation["issues"]:
+                st.warning("\n".join(validation["issues"]))
+            else:
+                st.success("The parsed Moodle response data passed the validation checks for the core analytics pipeline.")
+            st.write("Interpretation guidance:")
+            st.write("- Higher average scores indicate questions that were easier for the cohort.")
+            st.write("- Lower score distributions and greater concentration of incorrect responses may indicate misconceptions or missing prerequisite knowledge.")
+            st.write("- PRT pass rates help identify which branches of a Potential Response Tree are being routed correctly.")
+            st.download_button(
+                label="Download full question analytics summary",
+                data=export_summary.to_csv(index=False).encode("utf-8"),
+                file_name=f"{selected_quiz_name}_question_analysis.csv",
+                mime="text/csv",
             )
-            fig2.update_layout(title="Valid vs Invalid Attempts")
-            st.plotly_chart(fig2, use_container_width=True)
-
-        st.subheader("Top Most Difficult Questions")
-        st.dataframe(ranked_difficulty.head(10))
-
-        st.subheader("Question Metrics Summary")
-        st.dataframe(question_metrics[["question", "attempts", "avg_score", "percent_correct", "percent_incorrect", "percent_valid", "percent_invalid", "syntax_error_count", "syntax_error_percent"]].rename(columns={"avg_score": "average_score"}))
-
-        st.subheader("PRT Pass Heatmap")
-        if not prt_pass_rates.empty:
-            heatmap_df = prt_pass_rates.pivot(index="question", columns="prt_name", values="pass_rate").fillna(0)
-            fig3 = px.imshow(
-                heatmap_df,
-                labels=dict(x="PRT", y="Question", color="Pass %"),
-                color_continuous_scale=["#ef4444", "#fde68a", "#22c55e"],
-            )
-            fig3.update_layout(title="PRT Pass Heatmap")
-            st.plotly_chart(fig3, use_container_width=True)
-        else:
-            st.info("No PRT pass data available for this quiz.")
-
-        st.subheader("Repeated Wrong Answer Trends")
-        st.dataframe(repeated_wrong_answers)
-
-        st.subheader("Difficulty Metrics")
-        st.dataframe(difficulty_metrics)
-
-        st.subheader("Syntax Error Analysis")
-        st.dataframe(syntax_analysis)
-
-        st.subheader("Overall Question Analytics Summary")
-        st.download_button(
-            label="Download summary CSV",
-            data=export_summary.to_csv(index=False).encode("utf-8"),
-            file_name=f"{selected_quiz_name}_question_analysis.csv",
-            mime="text/csv",
-        )
-        st.dataframe(export_summary)
+            st.markdown("For the full methodology and definitions, refer to the provided Question Analytics document in your project materials.")
 else:
     st.info("Upload one or more question results files to begin.")
