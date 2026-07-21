@@ -132,7 +132,8 @@ with st.container(border=True):
         """
         Special thanks to:
         - **Sage** for the technical setup.
-        - **Ernest** and **Otis** for the question analysis research and implementation.
+        - **Ernest** for the question analysis implementation and UI improvement.
+        - **Otis** for the question analysis research.
         """
     )
     st.write("The project is still a work in progress. If you discover bugs or have suggestions for improvements, please open a Pull Request on GitHub.")
