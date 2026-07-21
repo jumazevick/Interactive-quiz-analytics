@@ -1,60 +1,68 @@
 from __future__ import annotations
 
+import re
 import pandas as pd
+from analytics.parser import get_attempt_pools
 
 
 def compute_difficulty_metrics(response_df: pd.DataFrame) -> pd.DataFrame:
-    """Compute difficulty and discrimination metrics per question."""
-    if response_df.empty:
-        return pd.DataFrame(columns=["question", "difficulty_index", "discrimination_index", "average_marks", "median_marks", "standard_deviation", "variance", "success_rate"])
+    """Compute difficulty, marks stats, and discrimination index D using Pool B (Best Attempt per Student)."""
+    if response_df.empty or "question" not in response_df.columns:
+        return pd.DataFrame(columns=[
+            "question", "difficulty_index", "discrimination_index",
+            "average_marks", "median_marks", "standard_deviation", "variance", "success_rate"
+        ])
 
-    # 1. Compute each student's highest overall quiz score (for ranking)
-    # response_df contains student_id and overall_grade.
-    student_best_overall = response_df.groupby("student_id")["overall_grade"].max().to_dict()
-    sorted_students = sorted(student_best_overall.keys(), key=lambda s: student_best_overall[s], reverse=True)
-    num_students = len(sorted_students)
+    _, pool_b_df = get_attempt_pools(response_df)
 
-    # Top & Bottom 27% cohorts
-    cohort_size = max(1, int(round(num_students * 0.27)))
-    top_students = set(sorted_students[:cohort_size])
-    bottom_students = set(sorted_students[-cohort_size:])
+    def get_q_num(q_name: str) -> int:
+        m = re.search(r"\d+", str(q_name))
+        return int(m.group(0)) if m else 0
 
-    summary = []
-    for question, group in response_df.groupby("question"):
-        # For each student, get their best question score for this question (max grade)
-        student_best_q = group.groupby("student_id")["grade"].max().to_dict()
+    questions = sorted(pool_b_df["question"].unique(), key=get_q_num)
 
-        # Calculate F_top and F_bottom
-        f_top_correct = sum(1 for s in top_students if student_best_q.get(s, 0.0) == 1.0)
-        F_top = f_top_correct / len(top_students) if top_students else 0.0
+    # Calculate overall quiz performance per student in Pool B for Top/Bottom 27% cohort ranking
+    student_scores = pool_b_df.groupby("student_id")["overall_grade"].first()
+    sorted_students = student_scores.sort_values(ascending=False).index.tolist()
+    N_students = len(sorted_students)
 
-        f_bottom_correct = sum(1 for s in bottom_students if student_best_q.get(s, 0.0) == 1.0)
-        F_bottom = f_bottom_correct / len(bottom_students) if bottom_students else 0.0
+    k = max(1, round(0.27 * N_students)) if N_students > 0 else 0
+    top_group = set(sorted_students[:k]) if k > 0 else set()
+    bottom_group = set(sorted_students[-k:]) if k > 0 else set()
 
-        D = round(float(F_top - F_bottom), 2)
+    rows = []
+    for q in questions:
+        q_b = pool_b_df[pool_b_df["question"] == q]
+        if q_b.empty:
+            continue
 
-        # Marks (grade * 10.0 scale)
-        scores_x10 = group["grade"].astype(float).to_numpy() * 10.0
-        average_marks = round(float(scores_x10.mean()), 2) if len(scores_x10) else 0.0
-        median_marks = round(float(pd.Series(scores_x10).median()), 2) if len(scores_x10) else 0.0
-        std = round(float(pd.Series(scores_x10).std()), 2) if len(scores_x10) > 1 else 0.0
-        variance = round(float(pd.Series(scores_x10).var()), 2) if len(scores_x10) > 1 else 0.0
+        # Scores out of 10.0
+        scores_10 = q_b["grade"] * 10.0
+        avg_marks = float(scores_10.mean())
+        median_marks = float(scores_10.median())
+        std_marks = float(scores_10.std(ddof=1)) if len(scores_10) > 1 else 0.0
+        var_marks = float(scores_10.var(ddof=1)) if len(scores_10) > 1 else 0.0
 
-        # facility of this question computed over all attempts
-        attempts = len(group)
-        facility = (group["grade"] == 1.0).sum() / attempts if attempts else 0.0
-        success_rate = round(float(facility * 100), 2)
-        difficulty_index = success_rate # as facility * 100
+        facility = float((q_b["grade"] == 1.0).sum() / len(q_b)) if len(q_b) > 0 else 0.0
+        success_rate = facility * 100.0
 
-        summary.append({
-            "question": question,
-            "difficulty_index": difficulty_index,
-            "discrimination_index": D,
-            "average_marks": average_marks,
-            "median_marks": median_marks,
-            "standard_deviation": std,
-            "variance": variance,
-            "success_rate": success_rate,
+        # Discrimination Index D = Facility_top - Facility_bottom
+        top_q = q_b[q_b["student_id"].isin(top_group)]
+        bottom_q = q_b[q_b["student_id"].isin(bottom_group)]
+
+        f_top = float((top_q["grade"] == 1.0).sum() / len(top_q)) if len(top_q) > 0 else 0.0
+        f_bottom = float((bottom_q["grade"] == 1.0).sum() / len(bottom_q)) if len(bottom_q) > 0 else 0.0
+        d_index = f_top - f_bottom
+
+        rows.append({
+            "question": q,
+            "difficulty_index": round(success_rate, 2),
+            "discrimination_index": round(d_index, 4),
+            "average_marks": round(avg_marks, 2),
+            "median_marks": round(median_marks, 2),
+            "standard_deviation": round(std_marks, 2),
+            "variance": round(var_marks, 2),
+            "success_rate": round(success_rate, 2),
         })
 
-    return pd.DataFrame(summary).sort_values("question").reset_index(drop=True)
+    return pd.DataFrame(rows)

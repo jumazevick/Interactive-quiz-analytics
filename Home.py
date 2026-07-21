@@ -1,6 +1,6 @@
 import streamlit as st
 
-st.set_page_config(page_title="Home", page_icon=":bar_chart:", layout="wide")
+st.set_page_config(page_title="Moodle/STACK Interactive Quiz Analytics", page_icon=":bar_chart:", layout="wide")
 
 # Custom premium gradient header banner
 st.markdown(
@@ -10,7 +10,7 @@ st.markdown(
             Interactive STACK Data
         </span>
         <h1 style="color: white; margin: 0 0 10px 0; font-size: 2.5rem; font-weight: 800; border-bottom: none;">
-            Interactive Quiz & Question Analytics
+            Moodle/STACK Interactive Quiz Analytics
         </h1>
         <p style="margin: 0; font-size: 1.1rem; opacity: 0.9; line-height: 1.5;">
             Analyze overall grade distributions, calculate correlation metrics, and drill down into specific student responses and potential response trees (PRTs) for STACK questions.
@@ -73,7 +73,7 @@ with col_b:
     with st.container(border=True):
         st.markdown("📦 **B. Question & PRT Analysis**")
         st.caption("For detailed question-level metrics and PRT trees")
-        st.write("To evaluate specific question states and potential response trees (PRTs), export the **Responses** report. This process is identical to exporting grades, except you select 'Responses' instead of 'Grades'.")
+        st.write("To evaluate specific question states and potential response trees (PRTs), export the **Responses** report. For the most accurate per-question scoring, enable **question-by-question breakdown** in the **Grades** export and upload it alongside the Responses file for the same quiz.")
         with st.container(border=True):
             st.markdown(
                 """
@@ -142,7 +142,7 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.markdown(
     """
     <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: gray; margin-top: 1rem; margin-bottom: 1rem;">
-        <div>Moodle STACK Analytics Hub is open-source and fully client-side.</div>
+        <div>Moodle/STACK Interactive Quiz Analytics is open-source and fully client-side.</div>
         <div>No quiz data is ever uploaded to external servers.</div>
     </div>
     """,

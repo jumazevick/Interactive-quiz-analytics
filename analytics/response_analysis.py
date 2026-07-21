@@ -1,104 +1,93 @@
 from __future__ import annotations
 
+from collections import Counter
+import re
 import pandas as pd
+from analytics.parser import get_attempt_pools
 
 
 def compute_response_outcomes(response_df: pd.DataFrame) -> pd.DataFrame:
-    """Compute response outcome percentages per question."""
-    if response_df.empty:
+    """Compute response outcome percentages (Pool B for correct/incorrect, Pool A for valid/invalid)."""
+    if response_df.empty or "question" not in response_df.columns:
         return pd.DataFrame(columns=["question", "correct_percent", "incorrect_percent", "valid_percent", "invalid_percent"])
 
-    summary = []
-    for question, group in response_df.groupby("question"):
-        attempts = len(group)
-        correct_count = int((group["response_status"] == "correct").sum())
-        invalid_count = int((group["response_status"] == "invalid").sum())
-        blank_count = int((group["response_status"] == "blank").sum())
+    pool_a_df, pool_b_df = get_attempt_pools(response_df)
 
-        facility = correct_count / attempts if attempts else 0.0
-        invalid_rate = invalid_count / attempts if attempts else 0.0
-        blank_rate = blank_count / attempts if attempts else 0.0
+    def get_q_num(q_name: str) -> int:
+        m = re.search(r"\d+", str(q_name))
+        return int(m.group(0)) if m else 0
 
-        correct_percent = round(facility * 100, 2)
-        incorrect_percent = round((1 - facility) * 100, 2)
-        valid_percent = round((1 - invalid_rate - blank_rate) * 100, 2)
-        invalid_percent = round(invalid_rate * 100, 2)
+    questions = sorted(pool_a_df["question"].unique(), key=get_q_num)
+    rows = []
 
-        summary.append({
-            "question": question,
-            "correct_percent": correct_percent,
-            "incorrect_percent": incorrect_percent,
-            "valid_percent": valid_percent,
-            "invalid_percent": invalid_percent,
+    for q in questions:
+        q_a = pool_a_df[pool_a_df["question"] == q]
+        q_b = pool_b_df[pool_b_df["question"] == q]
+
+        # Pool B: correct vs incorrect
+        len_b = len(q_b)
+        facility_b = (q_b["grade"] == 1.0).sum() / len_b if len_b > 0 else 0.0
+        correct_pct = facility_b * 100.0
+        incorrect_pct = (1.0 - facility_b) * 100.0
+
+        # Pool A: valid vs invalid vs blank
+        len_a = len(q_a)
+        invalid_a = (q_a["response_status"] == "invalid").sum()
+        blank_a = (q_a["response_status"] == "blank").sum()
+        invalid_pct = (invalid_a / len_a * 100.0) if len_a > 0 else 0.0
+        blank_pct = (blank_a / len_a * 100.0) if len_a > 0 else 0.0
+        valid_pct = max(0.0, 100.0 - invalid_pct - blank_pct)
+
+        rows.append({
+            "question": q,
+            "correct_percent": round(correct_pct, 2),
+            "incorrect_percent": round(incorrect_pct, 2),
+            "valid_percent": round(valid_pct, 2),
+            "invalid_percent": round(invalid_pct, 2),
         })
 
-    return pd.DataFrame(summary).sort_values("question").reset_index(drop=True)
+    return pd.DataFrame(rows)
 
 
 def compute_repeated_wrong_answers(response_df: pd.DataFrame) -> pd.DataFrame:
-    """Identify repeated incorrect responses for each question."""
-    if response_df.empty:
-        return pd.DataFrame(columns=["question", "most_common_incorrect_answer", "frequency", "percentage"])
+    """Tally most frequent wrong literal inputs strictly from Pool B (Best Attempt per Student)."""
+    if response_df.empty or "question" not in response_df.columns:
+        return pd.DataFrame(columns=["question", "most_common_incorrect_answer", "frequency"])
 
-    summary = []
-    for question, group in response_df.groupby("question"):
-        wrong_rows = group[group["grade"] < 1.0]
-        if wrong_rows.empty:
-            summary.append({
-                "question": question,
-                "most_common_incorrect_answer": "-",
-                "frequency": 0,
-                "percentage": 0.0
-            })
-            continue
+    _, pool_b_df = get_attempt_pools(response_df)
 
-        # Collect wrong expressions
-        wrong_exprs = []
-        for _, row in wrong_rows.iterrows():
-            ans_list = row.get("ans_list", [])
-            prt_list = row.get("prt_list", [])
-            prt_map = {prt["index"]: prt for prt in prt_list}
+    def get_q_num(q_name: str) -> int:
+        m = re.search(r"\d+", str(q_name))
+        return int(m.group(0)) if m else 0
+
+    questions = sorted(pool_b_df["question"].unique(), key=get_q_num)
+    rows = []
+
+    for q in questions:
+        wrong_b = pool_b_df[(pool_b_df["question"] == q) & (pool_b_df["grade"] < 1.0)]
+
+        expr_counts: Counter = Counter()
+        for _, r in wrong_b.iterrows():
+            ans_list = r.get("ans_list") or []
             for ans in ans_list:
-                k = ans["index"]
-                tag = ans["tag"]
-                expr = ans["expression"]
-                is_wrong = False
-                if tag == "invalid":
-                    is_wrong = True
-                else:
-                    prt = prt_map.get(k)
-                    if prt is None or prt["fraction"] is None or prt["fraction"] < 1.0:
-                        is_wrong = True
+                tag = ans.get("tag")
+                expr = str(ans.get("expression", "")).strip()
+                if expr and tag in ("invalid", "valid", "score"):
+                    expr_counts[expr] += 1
 
-                if is_wrong and expr:
-                    wrong_exprs.append(expr)
+        if expr_counts:
+            top_wrong = expr_counts.most_common(5)
+            formatted_list = [f"{expr} ({cnt})" for expr, cnt in top_wrong]
+            most_common_str = ", ".join(formatted_list)
+            top_freq = top_wrong[0][1]
+        else:
+            most_common_str = "None"
+            top_freq = 0
 
-        if not wrong_exprs:
-            summary.append({
-                "question": question,
-                "most_common_incorrect_answer": "-",
-                "frequency": 0,
-                "percentage": 0.0
-            })
-            continue
-
-        # Count frequencies
-        from collections import Counter
-        counts = Counter(wrong_exprs)
-        most_common = counts.most_common(5)  # top 5
-
-        # Format top 5 wrong inputs
-        formatted_ans = ", ".join([f"'{expr}' (x{count})" for expr, count in most_common])
-
-        # Frequency and percentage of the single most common
-        top_expr, top_count = most_common[0]
-        percentage = round(float(top_count / len(wrong_rows) * 100), 2)
-
-        summary.append({
-            "question": question,
-            "most_common_incorrect_answer": formatted_ans,
-            "frequency": top_count,
-            "percentage": percentage,
+        rows.append({
+            "question": q,
+            "most_common_incorrect_answer": most_common_str,
+            "frequency": top_freq,
         })
 
-    return pd.DataFrame(summary).sort_values("question").reset_index(drop=True)
+    return pd.DataFrame(rows)
