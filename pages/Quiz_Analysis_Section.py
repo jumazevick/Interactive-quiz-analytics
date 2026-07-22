@@ -1,16 +1,29 @@
 import re
 from datetime import datetime, timedelta
 
-import altair as alt
-import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
-import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
+from matplotlib.dates import date2num, num2date
+from scipy.stats import gaussian_kde
+
+from analytics.pdf_export import generate_pdf_report
+from analytics.upload_cache import sync_uploaded_files
 
 
-st.set_page_config(page_title="Quiz Analysis Section", page_icon=":chart_with_upwards_trend:")
+st.set_page_config(page_title="Quiz Analysis Section", page_icon=":chart_with_upwards_trend:", layout="wide")
 
 df_filtered = pd.DataFrame()
+
+# Chart/table captures for the PDF export (Part 4) — only populated when their
+# corresponding sidebar checkbox is on and there is data to render.
+pdf_summary_table = None
+boxplot_fig = None
+engagement_fig = None
+scatter_fig = None
+linegraph_fig = None
 
 
 def parse_time(time_str):
@@ -132,25 +145,25 @@ def load_data(uploaded_files):
 st.title("Quiz Analysis Section")
 st.header("Moodle STACK Analytics")
 
-st.markdown(
-    """
-This section is for analyzing uploaded Moodle STACK quiz files.
-
-Use the sidebar to upload one or more quiz result files. After upload, you can:
-
-- review merged attempts from multiple quizzes
-- compare student count, attempt rate, mean grade, and grade spread
-- view grade distributions
-- check engagement over time
-- compare attempts against grades
-
-If you need help downloading the files from Moodle, use the homepage guide.
-"""
-)
-
 st.sidebar.title("Options")
+uploaded_files = st.sidebar.file_uploader(
+    "Upload grades file(s)",
+    type=["csv", "xls", "xlsx"],
+    accept_multiple_files=True,
+    help="Upload one or more Moodle grades exports in CSV, XLS, or XLSX format.",
+)
+uploaded_files, used_cached_upload = sync_uploaded_files(uploaded_files)
+if used_cached_upload:
+    st.sidebar.caption("📎 Using file(s) uploaded from the other Analysis section: " + ", ".join(f.name for f in uploaded_files))
 
-uploaded_files = st.sidebar.file_uploader("Upload quiz result files", accept_multiple_files=True)
+st.sidebar.markdown("---")
+st.sidebar.subheader("Visible Sections")
+show_merged = st.sidebar.checkbox("Merged List of Users and Files")
+show_summary = st.sidebar.checkbox("Summary of Quiz Stats")
+show_boxplot = st.sidebar.checkbox("Quiz Grade Distribution (Box plot)", False)
+show_engagement = st.sidebar.checkbox("Frquency Density (Engagement) ")
+show_scatter = st.sidebar.checkbox("Scatter plot: Attempts vs Grades")
+show_linegraph = st.sidebar.checkbox("Line Graph of Various Metrics")
 
 if uploaded_files:
     df = load_data(uploaded_files)
@@ -161,13 +174,47 @@ if uploaded_files:
             default=df["quizID"].unique(),
         )
         df_filtered = df[df["quizID"].isin(selected_quizzes)]
+else:
+    # Pre-upload description & export guide (Part 6.1)
+    with st.container(border=True):
+        st.markdown("### 📈 Moodle STACK Analytics")
+        st.write("This section is for analyzing uploaded Moodle STACK quiz files. Use the sidebar to upload one or more quiz result files. After upload, you can:")
+        st.markdown(
+            """
+            - review merged attempts from multiple quizzes
+            - compare student count, attempt rate, mean grade, and grade spread
+            - view grade distributions
+            - check engagement over time
+            - compare attempts against grades
+            """
+        )
+        st.write("If you need help downloading the files from Moodle, use the homepage guide.")
 
-if st.sidebar.checkbox("Merged List of Users and Files"):
-    st.write("### Merged List of Users and Files")
-    st.write(
-        "This table combines all uploaded quiz files into one view. Each row is one attempt, with the student, quiz, date, time taken, and normalized grade."
-    )
-    st.dataframe(df_filtered)
+        # General Export Steps & Box A required columns
+        with st.container(border=True):
+            st.markdown("<h5 style='margin-top:0;'>⚙️ General Export Steps</h5>", unsafe_allow_html=True)
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("1️⃣ **Navigate to Your Quiz**\n\nClick into the specific STACK or standard Moodle quiz in your course workspace.")
+                st.markdown("2️⃣ **Open Quiz Results**\n\nSelect 'Results' from the quiz secondary menu or settings menu.")
+            with col2:
+                st.markdown("3️⃣ **Choose Report Type (Grades)**\n\nSelect 'Grades' from the Moodle report dropdown.")
+                st.markdown("4️⃣ **Download Table Data**\n\nScroll to the bottom of the page, select Comma Separated Values (.csv) or Microsoft Excel (.xlsx), and click 'Download'.")
+
+        with st.container(border=True):
+            st.markdown("📝 **A. Quiz Analysis Only Required Columns**")
+            st.markdown(
+                """
+                - **Surname**
+                - **First name**
+                - **Email address**
+                - **State**
+                - **Started on**
+                - **Completed**
+                - **Time taken**
+                - **Grade/10.00**
+                """
+            )
 
 
 def generate_quiz_stats(selected_stats):
@@ -214,107 +261,135 @@ def generate_quiz_stats(selected_stats):
     return pd.DataFrame()
 
 
-show_summary = st.sidebar.checkbox("Summary of Quiz Stats")
+if show_merged:
+    with st.container(border=True):
+        st.write("### Merged List of Users and Files")
+        st.write(
+            "This table combines all uploaded quiz files into one view. Each row is one attempt, with the student, quiz, date, time taken, and normalized grade."
+        )
+        st.dataframe(df_filtered, use_container_width=True)
 
 if show_summary:
-    st.write("### Summary of Quiz Statistics")
+    with st.container(border=True):
+        st.write("### Summary of Quiz Statistics")
+        if not df_filtered.empty:
+            selected_stats = st.sidebar.multiselect(
+                "Select Statistics to Display",
+                [
+                    "student_count",
+                    "attempt_rate",
+                    "mean_grade",
+                    "grade_variance",
+                    "mean_highest_grade",
+                    "attempt_count",
+                ],
+                default=[
+                    "student_count",
+                    "attempt_rate",
+                    "mean_grade",
+                    "grade_variance",
+                    "mean_highest_grade",
+                    "attempt_count",
+                ],
+            )
+
+            summary_notes = {
+                "student_count": "- student_count: how many different students attempted each quiz.\n",
+                "attempt_rate": "- attempt_rate: the average number of attempts per student for each quiz.\n",
+                "mean_grade": "- mean_grade: the average score for each quiz.\n",
+                "grade_variance": "- grade_variance: how spread out the grades are for each quiz.\n",
+                "mean_highest_grade": "- mean_highest_grade: the average best score each student reached in a quiz.\n",
+                "attempt_count": "- attempt_count: the total number of attempts made on each quiz.\n",
+            }
+
+            summary_text = " ".join([summary_notes[stat] for stat in selected_stats])
+            st.write(summary_text)
+            quiz_stats = generate_quiz_stats(selected_stats)
+            st.dataframe(quiz_stats, use_container_width=True)
+            pdf_summary_table = quiz_stats
+        else:
+            st.write("You need to upload a file(s) to initiate the analysis.")
+
+if show_boxplot:
     if not df_filtered.empty:
-        selected_stats = st.sidebar.multiselect(
-            "Select Statistics to Display",
-            [
-                "student_count",
-                "attempt_rate",
-                "mean_grade",
-                "grade_variance",
-                "mean_highest_grade",
-                "attempt_count",
-            ],
-            default=[
-                "student_count",
-                "attempt_rate",
-                "mean_grade",
-                "grade_variance",
-                "mean_highest_grade",
-                "attempt_count",
-            ],
-        )
-
-        summary_notes = {
-            "student_count": "- student_count: how many different students attempted each quiz.\n",
-            "attempt_rate": "- attempt_rate: the average number of attempts per student for each quiz.\n",
-            "mean_grade": "- mean_grade: the average score for each quiz.\n",
-            "grade_variance": "- grade_variance: how spread out the grades are for each quiz.\n",
-            "mean_highest_grade": "- mean_highest_grade: the average best score each student reached in a quiz.\n",
-            "attempt_count": "- attempt_count: the total number of attempts made on each quiz.\n",
-        }
-
-        summary_text = " ".join([summary_notes[stat] for stat in selected_stats])
-        st.write(summary_text)
-        quiz_stats = generate_quiz_stats(selected_stats)
-        st.dataframe(quiz_stats)
-    else:
-        st.write("You need to upload a file(s) to initiate the analysis.")
-
-if st.sidebar.checkbox("Quiz Grade Distribution (Box plot)", False):
-    if not df_filtered.empty:
-        st.write("### Quiz Grade Distribution (Box plot)")
-        sns.set(style="whitegrid")
-        plt.figure(figsize=(10, 6))
-
-        st.write(
-            """
-- Box Plot: shows how grades are spread out for each quiz.
-- Median: the green line marks the middle value of grades for each quiz.
-- mean_grade line: the red line shows the average grade for each quiz.
-"""
-        )
-
-        sns.boxplot(x="quizID", y="grade", data=df_filtered, palette="Set3", medianprops=dict(color="#00FF00"))
-        sns.stripplot(x="quizID", y="grade", data=df_filtered, color="black", jitter=0.1, size=1.8)
-
-        means = df_filtered.groupby("quizID")["grade"].mean().reset_index()
-        plt.plot(
-            means["quizID"].astype(int) - 1,
-            means["grade"],
-            marker="o",
-            color="#FF474C",
-            linestyle="-",
-            linewidth=2,
-            label="mean_grade",
-        )
-
-        plt.title("Grade Distribution")
-        plt.xlabel("Quiz ID")
-        plt.ylabel("Grade")
-        plt.legend()
-        st.pyplot(plt)
-    else:
-        st.write("You need to upload a file(s) to initiate the analysis.")
-
-if st.sidebar.checkbox("Frquency Density (Engagement) "):
-    st.write("### Engagement Over Time")
-    if "start_date" in list(df_filtered.columns):
-        df_filtered["start_date"] = pd.to_datetime(df_filtered["start_date"])
-        plt.figure(figsize=(10, 8))
-
-        if not df_filtered["start_date"].isnull().any():
-            for quiz_id in df_filtered["quizID"].unique():
-                quiz_data = df_filtered[df_filtered["quizID"] == quiz_id]
-                if not quiz_data.empty:
-                    sns.kdeplot(quiz_data["start_date"], label=f"Quiz {quiz_id}")
-                else:
-                    st.write(f"No data for Quiz ID: {quiz_id}")
-
-            plt.title("Engagement Over Time")
-            plt.xlabel("Date")
-            plt.ylabel("Frequency Density")
-            plt.xticks(rotation=45)
-            plt.legend()
-            plt.grid(True)
-            st.pyplot(plt)
+        with st.container(border=True):
+            st.write("### Quiz Grade Distribution (Box plot)")
 
             st.write(
                 """
+- Box Plot: shows how grades are spread out for each quiz.
+- Median: the line inside each box marks the middle value of grades for each quiz.
+- mean_grade line: the red line shows the average grade for each quiz.
+"""
+            )
+
+            fig = px.box(
+                df_filtered,
+                x="quizID",
+                y="grade",
+                points="all",
+                color_discrete_sequence=px.colors.qualitative.Set3,
+                labels={"quizID": "Quiz ID", "grade": "Grade"},
+            )
+            fig.update_traces(marker=dict(color="black", size=4, opacity=0.6), jitter=0.3)
+
+            means = df_filtered.groupby("quizID")["grade"].mean().reset_index()
+            fig.add_trace(go.Scatter(
+                x=means["quizID"],
+                y=means["grade"],
+                mode="lines+markers",
+                name="mean_grade",
+                line=dict(color="#FF474C", width=2),
+                marker=dict(size=8, color="#FF474C"),
+            ))
+
+            fig.update_layout(title="Grade Distribution")
+            boxplot_fig = fig
+            st.plotly_chart(fig, use_container_width=True, key="quiz_boxplot")
+    else:
+        st.info("You need to upload a file(s) to initiate the analysis.")
+
+if show_engagement:
+    with st.container(border=True):
+        st.write("### Engagement Over Time")
+        if "start_date" in list(df_filtered.columns):
+            df_filtered["start_date"] = pd.to_datetime(df_filtered["start_date"])
+
+            if not df_filtered["start_date"].isnull().any():
+                fig = go.Figure()
+                for quiz_id in df_filtered["quizID"].unique():
+                    quiz_data = df_filtered[df_filtered["quizID"] == quiz_id]
+                    if quiz_data.empty:
+                        st.write(f"No data for Quiz ID: {quiz_id}")
+                        continue
+                    # Same gaussian KDE (Scott's rule bandwidth) that seaborn.kdeplot uses
+                    # under the hood, evaluated over the quiz's date range.
+                    dates_numeric = date2num(quiz_data["start_date"])
+                    try:
+                        kde = gaussian_kde(dates_numeric)
+                    except np.linalg.LinAlgError:
+                        st.write(f"Quiz {quiz_id} has zero variance in start dates; skipping density estimate.")
+                        continue
+                    grid = np.linspace(dates_numeric.min(), dates_numeric.max(), 200)
+                    density = kde(grid)
+                    fig.add_trace(go.Scatter(
+                        x=num2date(grid),
+                        y=density,
+                        mode="lines",
+                        name=f"Quiz {quiz_id}",
+                        fill="tozeroy",
+                    ))
+
+                fig.update_layout(
+                    title="Engagement Over Time",
+                    xaxis_title="Date",
+                    yaxis_title="Frequency Density",
+                )
+                engagement_fig = fig
+                st.plotly_chart(fig, use_container_width=True, key="engagement_kde")
+
+                st.write(
+                    """
 This graph shows how students participation in quizzes changes over time.
 The line graph displays the frequency of quiz attempts on different dates.
 Each line represents a different quiz, showing when students started taking it.
@@ -324,46 +399,50 @@ What You Can Learn:
 - Peak Times: identify dates when engagement is high or low for each quiz.
 - Comparisons: compare the participation trends across different quizzes.
 """
-            )
-        else:
-            st.write("No valid dates available for plotting.")
+                )
+            else:
+                st.write("No valid dates available for plotting.")
 
-if st.sidebar.checkbox("Scatter plot: Attempts vs Grades"):
+if show_scatter:
     if "quizID" in list(df_filtered.columns):
-        st.write("### Scatter plot: Attempts vs Grades")
-        grade_type = st.sidebar.radio("Select Grade Type", ("Highest Grade", "Average Grade", "Minimum Grade"))
-        plt.figure(figsize=(25, 15))
+        with st.container(border=True):
+            st.write("### Scatter plot: Attempts vs Grades")
+            grade_type = st.sidebar.radio("Select Grade Type", ("Highest Grade", "Average Grade", "Minimum Grade"))
 
-        quiz_attempt_count = df_filtered.groupby(["quizID", "student_id"]).size().reset_index(name="attempt_count")
+            quiz_attempt_count = df_filtered.groupby(["quizID", "student_id"]).size().reset_index(name="attempt_count")
 
-        if grade_type == "Highest Grade":
-            grade_data = df_filtered.groupby(["quizID", "student_id"])["grade"].max().reset_index()
-            y_label = "Highest Grade"
-            title = "Attempts vs Highest Grade"
-        elif grade_type == "Minimum Grade":
-            grade_data = df_filtered.groupby(["quizID", "student_id"])["grade"].min().reset_index()
-            y_label = "Minimum Grade"
-            title = "Attempts vs Minimum Grade"
-        else:
-            grade_data = df_filtered.groupby(["quizID", "student_id"])["grade"].mean().reset_index()
-            y_label = "Average Grade"
-            title = "Attempts vs Average Grade"
+            if grade_type == "Highest Grade":
+                grade_data = df_filtered.groupby(["quizID", "student_id"])["grade"].max().reset_index()
+                y_label = "Highest Grade"
+                title = "Attempts vs Highest Grade"
+            elif grade_type == "Minimum Grade":
+                grade_data = df_filtered.groupby(["quizID", "student_id"])["grade"].min().reset_index()
+                y_label = "Minimum Grade"
+                title = "Attempts vs Minimum Grade"
+            else:
+                grade_data = df_filtered.groupby(["quizID", "student_id"])["grade"].mean().reset_index()
+                y_label = "Average Grade"
+                title = "Attempts vs Average Grade"
 
-        merged_data = pd.merge(quiz_attempt_count, grade_data, on=["quizID", "student_id"])
-        correlation = merged_data["attempt_count"].corr(merged_data["grade"])
-        st.write(f"Correlation between Attempts and Quiz {y_label}: r = {correlation:.2f}")
+            merged_data = pd.merge(quiz_attempt_count, grade_data, on=["quizID", "student_id"])
+            correlation = merged_data["attempt_count"].corr(merged_data["grade"])
+            st.write(f"Correlation between Attempts and Quiz {y_label}: r = {correlation:.2f}")
 
-        sns.scatterplot(data=merged_data, x="attempt_count", y="grade", hue="quizID", palette="husl", marker="o", s=200)
-        plt.title(title, fontsize=20)
-        plt.xlabel("No. of Attempts", fontsize=20)
-        plt.ylabel(y_label, fontsize=20)
-        plt.legend(title="Quiz ID", fontsize=20)
-        plt.xticks(fontsize=12)
-        plt.yticks(fontsize=12)
-        st.pyplot(plt)
+            fig = px.scatter(
+                merged_data,
+                x="attempt_count",
+                y="grade",
+                color=merged_data["quizID"].astype(str),
+                color_discrete_sequence=px.colors.qualitative.Set2,
+                labels={"attempt_count": "No. of Attempts", "grade": y_label, "color": "Quiz ID"},
+            )
+            fig.update_traces(marker=dict(size=14, line=dict(width=1, color="white")))
+            fig.update_layout(title=title, legend_title="Quiz ID")
+            scatter_fig = fig
+            st.plotly_chart(fig, use_container_width=True, key="scatter_attempts_grades")
 
-        st.write(
-            f"""
+            st.write(
+                f"""
 Attempts vs {y_label}:
 
 This scatter plot shows how the number of attempts relates to the {y_label} for each quiz.
@@ -373,59 +452,102 @@ This scatter plot shows how the number of attempts relates to the {y_label} for 
 - Minimum Grade: the lowest score a student achieved.
 - Average Grade: the overall performance across attempts.
 """
-        )
+            )
     else:
-        st.write("You need to upload a file(s) to initiate the analysis.")
+        st.info("You need to upload a file(s) to initiate the analysis.")
 
-if st.sidebar.checkbox("Line Graph of Various Metrics"):
-    st.write("### Line Graph of Various Metrics")
-    selected_metrics = st.sidebar.multiselect(
-        "Select Metrics to Display",
-        ["student_count", "attempt_rate", "mean_grade", "grade_variance"],
-        default=["student_count", "attempt_rate", "mean_grade", "grade_variance"],
+if show_linegraph:
+    with st.container(border=True):
+        st.write("### Line Graph of Various Metrics")
+        selected_metrics = st.sidebar.multiselect(
+            "Select Metrics to Display",
+            ["student_count", "attempt_rate", "mean_grade", "grade_variance"],
+            default=["student_count", "attempt_rate", "mean_grade", "grade_variance"],
+        )
+
+        if selected_metrics:
+            if "student_count" in selected_metrics:
+                st.write("student_count: number of unique students who attempted each quiz.")
+            if "attempt_rate" in selected_metrics:
+                st.write("attempt_rate: average number of attempts per student for each quiz.")
+            if "mean_grade" in selected_metrics:
+                st.write("mean_grade: average score for each quiz.")
+            if "grade_variance" in selected_metrics:
+                st.write("grade_variance: how spread out the grades are for each quiz.")
+
+            def generate_line_graph_data(frame, metrics):
+                data = {}
+                if "student_count" in metrics:
+                    data["student_count"] = frame.groupby("quizID")["student_id"].nunique()
+                if "attempt_rate" in metrics:
+                    attempts_per_student = frame.groupby(["quizID", "student_id"]).size().reset_index(name="attempt_count")
+                    data["attempt_rate"] = attempts_per_student.groupby("quizID")["attempt_count"].mean()
+                if "mean_grade" in metrics:
+                    data["mean_grade"] = frame.groupby("quizID")["grade"].mean()
+                if "grade_variance" in metrics:
+                    data["grade_variance"] = frame.groupby("quizID")["grade"].var()
+                return pd.DataFrame(data).reset_index()
+
+            if not df_filtered.empty:
+                line_graph_data = generate_line_graph_data(df_filtered, selected_metrics)
+                line_graph_data = line_graph_data.melt("quizID", var_name="Metric", value_name="Value")
+
+                fig = px.line(
+                    line_graph_data,
+                    x="quizID",
+                    y="Value",
+                    color="Metric",
+                    markers=True,
+                    labels={"quizID": "Quiz ID", "Value": "Value"},
+                )
+                fig.update_xaxes(type="category")
+                fig.update_layout(title="Line Graph of Various Metrics")
+                linegraph_fig = fig
+                st.plotly_chart(fig, use_container_width=True, key="line_graph_metrics")
+        else:
+            st.info("You need to upload a file(s) to initiate the analysis.")
+
+# Single PDF Report Exporter Button for Quiz Analysis (Part 4: tables + rendered chart images,
+# gated by the same sidebar checkboxes that control what's visible on screen)
+if not df_filtered.empty:
+    pdf_sections = []
+    if show_merged:
+        pdf_sections.append({"title": "Merged List of Users and Files", "caption": "All parsed quiz attempt rows (combined across uploaded files)", "df": df_filtered})
+    if show_summary and pdf_summary_table is not None:
+        pdf_sections.append({"title": "Summary of Quiz Stats", "caption": "Aggregated stats per quiz", "df": pdf_summary_table})
+    if show_boxplot and boxplot_fig is not None:
+        pdf_sections.append({"title": "Quiz Grade Distribution (Box plot)", "caption": "Spread of grades per quiz, with mean grade overlay", "charts": [{"title": "Grade Distribution", "figure": boxplot_fig}]})
+    if show_engagement and engagement_fig is not None:
+        pdf_sections.append({"title": "Engagement Over Time", "caption": "Density of quiz attempt start times per quiz", "charts": [{"title": "Engagement Over Time", "figure": engagement_fig}]})
+    if show_scatter and scatter_fig is not None:
+        pdf_sections.append({"title": "Scatter plot: Attempts vs Grades", "caption": "Correlation between number of attempts and grade outcome", "charts": [{"title": "Attempts vs Grades", "figure": scatter_fig}]})
+    if show_linegraph and linegraph_fig is not None:
+        pdf_sections.append({"title": "Line Graph of Various Metrics", "caption": "Trend of selected metrics across quizzes", "charts": [{"title": "Metrics by Quiz", "figure": linegraph_fig}]})
+
+    pdf_bytes = generate_pdf_report(
+        title="Moodle STACK Quiz Analysis Report",
+        subtitle="Overall Quiz Performance & Cohort Analytics",
+        sections=pdf_sections,
+    )
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.download_button(
+        label="📄 Download PDF Report",
+        data=pdf_bytes,
+        file_name="quiz_analysis_report.pdf",
+        mime="application/pdf",
+        use_container_width=True,
     )
 
-    if selected_metrics:
-        if "student_count" in selected_metrics:
-            st.write("student_count: number of unique students who attempted each quiz.")
-        if "attempt_rate" in selected_metrics:
-            st.write("attempt_rate: average number of attempts per student for each quiz.")
-        if "mean_grade" in selected_metrics:
-            st.write("mean_grade: average score for each quiz.")
-        if "grade_variance" in selected_metrics:
-            st.write("grade_variance: how spread out the grades are for each quiz.")
+# Persistent Footer (Part 6.2)
+st.markdown("<br><hr>", unsafe_allow_html=True)
+st.markdown(
+    """
+    <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: gray; margin-top: 1rem; margin-bottom: 1rem;">
+        <div>Moodle STACK Analytics Hub is open-source and fully client-side.</div>
+        <div>No quiz data is ever uploaded to external servers.</div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
-        def generate_line_graph_data(frame, metrics):
-            data = {}
-            if "student_count" in metrics:
-                data["student_count"] = frame.groupby("quizID")["student_id"].nunique()
-            if "attempt_rate" in metrics:
-                attempts_per_student = frame.groupby(["quizID", "student_id"]).size().reset_index(name="attempt_count")
-                data["attempt_rate"] = attempts_per_student.groupby("quizID")["attempt_count"].mean()
-            if "mean_grade" in metrics:
-                data["mean_grade"] = frame.groupby("quizID")["grade"].mean()
-            if "grade_variance" in metrics:
-                data["grade_variance"] = frame.groupby("quizID")["grade"].var()
-            return pd.DataFrame(data).reset_index()
 
-        if not df_filtered.empty:
-            line_graph_data = generate_line_graph_data(df_filtered, selected_metrics)
-            line_graph_data = line_graph_data.melt("quizID", var_name="Metric", value_name="Value")
-
-            line_chart = alt.Chart(line_graph_data).mark_line().encode(
-                x=alt.X("quizID:O", title="Quiz ID"),
-                y=alt.Y("Value:Q"),
-                color="Metric:N",
-                tooltip=["quizID", "Metric", "Value"],
-            ).properties(width=600, height=400)
-
-            points = line_chart.mark_point().encode(
-                x=alt.X("quizID:O", title="Quiz ID"),
-                y=alt.Y("Value:Q"),
-                color="Metric:N",
-                tooltip=["quizID", "Metric", "Value"],
-            )
-
-            st.altair_chart(line_chart + points)
-    else:
-        st.write("You need to upload a file(s) to initiate the analysis.")
