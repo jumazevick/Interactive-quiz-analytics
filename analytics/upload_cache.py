@@ -5,6 +5,7 @@ from typing import Any
 import streamlit as st
 
 SHARED_UPLOAD_KEY = "shared_uploaded_files"
+UPLOADER_KEY_COUNTER = "uploader_key_counter"
 
 
 class CachedUploadedFile:
@@ -77,3 +78,19 @@ def sync_uploaded_files(freshly_uploaded: list[Any] | None) -> tuple[list[Any], 
         return restored, True
 
     return freshly_uploaded or [], False
+
+
+def get_uploader_key() -> str:
+    """Widget key for the shared file_uploader. Streamlit's file_uploader can't be
+    cleared by writing to its session_state value directly — the only reliable way is
+    to swap in a new `key`, which makes it a "new" widget with empty state."""
+    counter = st.session_state.get(UPLOADER_KEY_COUNTER, 0)
+    return f"shared_file_uploader_{counter}"
+
+
+def clear_uploaded_files() -> None:
+    """Reset the shared upload cache and force the file_uploader widget to reinitialize
+    empty on the next rerun, fixing the case where navigating away and back leaves a
+    visually-empty uploader silently backed by cached files with no way to remove them."""
+    st.session_state[UPLOADER_KEY_COUNTER] = st.session_state.get(UPLOADER_KEY_COUNTER, 0) + 1
+    st.session_state.pop(SHARED_UPLOAD_KEY, None)

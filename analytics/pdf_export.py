@@ -25,7 +25,33 @@ def _figure_to_png_bytes(figure: Any) -> bytes | None:
         return bytes(figure)
     try:
         if hasattr(figure, "to_image"):  # Plotly Figure
-            return figure.to_image(format="png", scale=2)
+            # st.plotly_chart(...) themes charts on-screen via Streamlit's frontend at
+            # render time; that color injection never happens when the same figure is
+            # rasterized server-side here. Force a real (non-neutral) template on a
+            # clone before exporting so PDF charts never silently lose their color,
+            # regardless of what template the figure happened to pick up on-screen.
+            # Also force a horizontal, below-plot legend and generous margins: a default
+            # right-side legend (esp. with many series, e.g. one per quiz) eats enough
+            # horizontal width at export time to squeeze the actual plot into a narrow,
+            # overlapping-label strip.
+            export_width, export_height = 800, 400
+            try:
+                cloned = figure.__class__(figure)
+                cloned.update_layout(
+                    template="plotly",
+                    margin=dict(l=50, r=50, t=50, b=80),
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+                )
+                # Respect a figure's own explicit size (e.g. the student-performance
+                # heatmap scales its height to the student count) instead of overriding it.
+                if cloned.layout.width:
+                    export_width = cloned.layout.width
+                if cloned.layout.height:
+                    export_height = cloned.layout.height
+                figure = cloned
+            except Exception:
+                pass
+            return figure.to_image(format="png", width=export_width, height=export_height, scale=2)
         if hasattr(figure, "savefig"):  # Matplotlib Figure
             buf = io.BytesIO()
             figure.savefig(buf, format="png", dpi=150, bbox_inches="tight")
