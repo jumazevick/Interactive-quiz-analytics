@@ -84,6 +84,7 @@ st.set_page_config(
 inject_global_styles()
 
 st.title("Question & Quiz Analysis")
+st.warning("⏳ Depending on the size of your upload, it may take up to 30 seconds for all statistics to fully render, and up to 30 seconds for the downloadable PDF report to generate.")
 
 # Sidebar overflow fix: with 13 section checkboxes plus a quiz selector, the sidebar
 # can outgrow the viewport and hide the quiz dropdown below the fold without scrolling.
