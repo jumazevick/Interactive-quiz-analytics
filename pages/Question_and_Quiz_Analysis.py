@@ -81,6 +81,7 @@ st.set_page_config(
     page_icon=":bar_chart:",
     layout="wide",
 )
+inject_global_styles()
 
 st.title("Question & Quiz Analysis")
 
