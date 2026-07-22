@@ -1,9 +1,19 @@
 from __future__ import annotations
 
+import html
 import re
 from typing import Any
 
 import pandas as pd
+
+
+def _clean_html_text(text: Any) -> str:
+    """Strip HTML tags/entities from a Moodle question/answer cell, leaving LaTeX delimiters intact."""
+    if pd.isna(text):
+        return ""
+    cleaned = html.unescape(str(text))
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
 
 
 def parse_uploaded_file(file_obj: Any) -> pd.DataFrame:
@@ -123,7 +133,7 @@ def build_response_rows(df: pd.DataFrame, quiz_name: str) -> pd.DataFrame:
             "student_id", "student_name", "question", "grade", "max_grade",
             "response_status", "response_text", "quiz_name", "ans_list",
             "prt_list", "overall_grade", "completed_dt", "started_on",
-            "attempt_idx", "source_type"
+            "attempt_idx", "source_type", "question_text", "right_answer_text"
         ])
 
     # Identify response columns (Response 1 ... Response N)
@@ -137,6 +147,20 @@ def build_response_rows(df: pd.DataFrame, quiz_name: str) -> pd.DataFrame:
         return int(m.group(0)) if m else 0
 
     response_cols = sorted(response_cols, key=get_col_number)
+
+    # Optional display-metadata columns from Moodle's Responses report Display options
+    # ("Question text" / "Right answer"). Purely additional context for the UI — never
+    # used for scoring, which stays driven entirely by the ans/prt tags in Response i.
+    question_text_cols = {
+        get_col_number(col): col
+        for col in df.columns
+        if re.match(r"^Question\s*\d+$", str(col).strip(), re.IGNORECASE)
+    }
+    right_answer_cols = {
+        get_col_number(col): col
+        for col in df.columns
+        if re.match(r"^Right answer\s*\d+$", str(col).strip(), re.IGNORECASE)
+    }
 
     # Determine M (number of PRT parts) for each question column
     M_dict = {}
@@ -177,6 +201,9 @@ def build_response_rows(df: pd.DataFrame, quiz_name: str) -> pd.DataFrame:
             q_num = get_col_number(col)
             question_label = f"Q{q_num}"
             cell_text = str(row[col]) if pd.notna(row[col]) else ""
+
+            question_text = _clean_html_text(row.get(question_text_cols.get(q_num))) if q_num in question_text_cols else ""
+            right_answer_text = _clean_html_text(row.get(right_answer_cols.get(q_num))) if q_num in right_answer_cols else ""
 
             ans_list, prt_list = parse_response_cell(cell_text)
 
@@ -221,6 +248,8 @@ def build_response_rows(df: pd.DataFrame, quiz_name: str) -> pd.DataFrame:
                 "started_on": started_dt,
                 "attempt_idx": index,
                 "source_type": "responses",
+                "question_text": question_text,
+                "right_answer_text": right_answer_text,
             })
 
     return pd.DataFrame(records)
@@ -237,7 +266,7 @@ def build_grade_breakdown_rows(df: pd.DataFrame, quiz_name: str) -> pd.DataFrame
             "student_id", "student_name", "question", "grade", "max_grade",
             "response_status", "response_text", "quiz_name", "overall_grade",
             "completed_dt", "started_on", "attempt_idx", "source_type",
-            "raw_score", "question_max_score"
+            "raw_score", "question_max_score", "question_text", "right_answer_text"
         ])
 
     question_cols = [
@@ -304,6 +333,8 @@ def build_grade_breakdown_rows(df: pd.DataFrame, quiz_name: str) -> pd.DataFrame
                 "source_type": "grades_breakdown",
                 "raw_score": float(raw_score) if pd.notna(raw_score) else None,
                 "question_max_score": max_score,
+                "question_text": "",
+                "right_answer_text": "",
             })
 
     return pd.DataFrame(records)

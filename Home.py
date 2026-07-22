@@ -1,6 +1,33 @@
+import re
+
 import streamlit as st
 
+from analytics.ui_theme import inject_global_styles
+
 st.set_page_config(page_title="Moodle/STACK Interactive Quiz Analytics", page_icon=":bar_chart:", layout="wide")
+inject_global_styles()
+
+
+def render_youtube_video(url: str) -> None:
+    """Normalize a YouTube URL (watch/youtu.be/embed, with or without tracking query
+    params) into a form st.video() reliably embeds, with a graceful link fallback if
+    the embed itself fails for any reason."""
+    video_id = None
+    for pattern in (
+        r"youtu\.be/([A-Za-z0-9_-]{6,})",
+        r"youtube\.com/watch\?v=([A-Za-z0-9_-]{6,})",
+        r"youtube\.com/embed/([A-Za-z0-9_-]{6,})",
+    ):
+        match = re.search(pattern, url)
+        if match:
+            video_id = match.group(1)
+            break
+
+    try:
+        st.video(f"https://www.youtube.com/watch?v={video_id}" if video_id else url)
+    except Exception:
+        st.warning("⚠️ The video couldn't be embedded here.")
+        st.markdown(f"[Watch it directly on YouTube]({url})")
 
 # Custom premium gradient header banner
 st.markdown(
@@ -20,99 +47,31 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Page Navigation links
-col_link1, col_link2 = st.columns(2)
-with col_link1:
-    st.page_link("pages/Quiz_Analysis_Section.py", label="📈 Go to Quiz Analysis Section", use_container_width=True)
-with col_link2:
-    st.page_link("pages/Question_Analysis_Section.py", label="📊 Go to Question Analysis Section", use_container_width=True)
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# Main Export Steps container card
-with st.container(border=True):
-    st.markdown("### 📖 How to Export Quiz Attempt Data from Moodle")
-    st.write("Follow these step-by-step instructions to download compliant quiz attempt datasets from your Moodle course. You can perform two types of analytics based on the reports you export.")
-    
-    # Inner card for general steps
-    with st.container(border=True):
-        st.markdown("<h5 style='margin-top:0;'>⚙️ General Export Steps</h5>", unsafe_allow_html=True)
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("1️⃣ **Navigate to Your Quiz**\n\nClick into the specific STACK or standard Moodle quiz in your course workspace.")
-            st.markdown("2️⃣ **Open Quiz Results**\n\nSelect 'Results' from the quiz secondary menu or settings menu.")
-        with col2:
-            st.markdown("3️⃣ **Choose Report Type (Grades vs. Responses)**\n\nSelect either 'Grades' or 'Responses' from the Moodle report dropdown, depending on your target workflow.")
-            st.markdown("4️⃣ **Download Table Data**\n\nScroll to the bottom of the page, select Comma Separated Values (.csv) or Microsoft Excel (.xlsx), and click 'Download'.")
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# Side-by-side export types cards
-col_a, col_b = st.columns(2)
-
-with col_a:
-    with st.container(border=True):
-        st.markdown("📝 **A. Quiz Analysis Only**")
-        st.caption("For overall grade trends, box plots, and scatter charts")
-        st.write("To evaluate overall quiz attempts, export the standard **Grades** report. The downloaded spreadsheet must contain exactly these columns:")
-        with st.container(border=True):
-            st.markdown(
-                """
-                - **Surname**
-                - **First name**
-                - **Email address**
-                - **State**
-                - **Started on**
-                - **Completed**
-                - **Time taken**
-                - **Grade/10.00**
-                """
-            )
-
-with col_b:
-    with st.container(border=True):
-        st.markdown("📦 **B. Question & PRT Analysis**")
-        st.caption("For detailed question-level metrics and PRT trees")
-        st.write("To evaluate specific question states and potential response trees (PRTs), export the **Responses** report. For the most accurate per-question scoring, enable **question-by-question breakdown** in the **Grades** export and upload it alongside the Responses file for the same quiz.")
-        with st.container(border=True):
-            st.markdown(
-                """
-                ```python
-                // Identical metadata columns:
-                - Surname, First name, Email address...
-                - Grade/10.00
-                // Plus response columns:
-                - Response 1
-                - Response 2
-                - Response 3
-                - ...
-                - Response N (matches your quiz count)
-                ```
-                """
-            )
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# Sample Data Download Section
-with st.container(border=True):
-    c_text, c_btn = st.columns([3, 1])
-    with c_text:
-        st.markdown("**Want to try some sample data?**")
-        st.write("Download pre-configured mock quizzes and response reports to see the app in action.")
-    with c_btn:
-        zip_path = "sample_data/sample_quiz_data.zip"
-        try:
-            with open(zip_path, "rb") as f:
-                zip_data = f.read()
-            st.download_button(
-                label="📥 Download Sample Quiz Files",
-                data=zip_data,
-                file_name="sample_quiz_data.zip",
-                mime="application/zip",
-                use_container_width=True
-            )
-        except FileNotFoundError:
-            st.button("📥 Download Sample Quiz Files", disabled=True, use_container_width=True)
+# Page Navigation link — styled as a prominent call-to-action button
+st.markdown(
+    """
+    <style>
+    [data-testid="stPageLink"] {
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        border-radius: 10px;
+        padding: 0.5rem 0.5rem;
+        box-shadow: 0 2px 8px rgba(30, 60, 114, 0.35);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    [data-testid="stPageLink"]:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(30, 60, 114, 0.45);
+    }
+    [data-testid="stPageLink"] p {
+        color: white !important;
+        font-size: 1.15rem !important;
+        font-weight: 700 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+st.page_link("pages/Question_and_Quiz_Analysis.py", label="📊 Go to Question & Quiz Analysis", use_container_width=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -120,7 +79,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 with st.container(border=True):
     st.markdown("### 🎥 Project Walkthrough Video")
     st.write("Below is an introductory video explaining the project and its goals:")
-    st.video("https://youtu.be/Ww_FrryExYc?si=x-yeDCqGgUhDjFMb")
+    render_youtube_video("https://youtu.be/Ww_FrryExYc?si=x-yeDCqGgUhDjFMb")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -131,8 +90,8 @@ with st.container(border=True):
     st.markdown(
         """
         Special thanks to:
+        - **Ernest** for the question analysis research, technical setup and development, and implementation.
         - **Sage** for the technical setup.
-        - **Ernest** for the question analysis implementation and UI improvement.
         - **Otis** for the question analysis research.
         """
     )

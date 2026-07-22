@@ -6,32 +6,32 @@
 
 This project is a Streamlit dashboard for analyzing Moodle STACK quiz exports. It helps lecturers and administrators inspect student performance, question difficulty, response/PRT behaviour, and engagement patterns across one or more quizzes — entirely client-side, with no quiz data ever leaving the browser session.
 
-The app has two main sections, linked from the home page:
+The app is a single **Question & Quiz Analysis** page, linked from the home page, driven by one upload of a Moodle **Responses** export (optionally merged with a **Grades with question breakdown** export for more accurate per-question scoring):
 
-- **Quiz Analysis Section** — cohort-level trends from a Moodle **Grades** export (merged attempts, summary stats, grade distribution, engagement over time, attempts-vs-grades correlation, metric trends across quizzes).
-- **Question Analysis Section** — per-question analytics from a Moodle **Responses** export, optionally merged with a **Grades (with question breakdown)** export for more accurate per-question scoring (question summary, difficulty/discrimination, response distribution and PRT pass rates, a student-by-question performance matrix, and a consolidated metrics table).
+- **Question Analysis** (top, scoped to whichever quiz is selected) — question summary, difficulty/discrimination, per-question text with a right-answer/error drill-down, response distribution and PRT pass rates, a student-by-question performance matrix, and a consolidated metrics table.
+- **Quiz Analysis** (bottom, combined across every uploaded quiz you choose to include) — merged attempt list, summary stats, grade distribution, engagement over time, attempts-vs-grade correlation, and metric trends across quizzes.
 
 ## Features
 
-- **Flexible uploads**: supports `.csv`, `.xls`, and `.xlsx` exports; upload one or more files per section.
-- **Shared upload memory**: a file uploaded on one section stays available if you switch to the other section, so you don't need to re-upload it.
+- **Flexible uploads**: supports `.csv`, `.xls`, and `.xlsx` exports; upload one or more quiz files at once.
+- **Persistent upload**: an uploaded file survives navigating to the home page and back, with an explicit "Clear / Reset All Uploaded Files" button when you want a clean slate.
 - **Best-attempt handling**: automatically separates "all attempts" from "best attempt per student" for participation vs. performance metrics.
-- **Interactive Plotly charts**: every chart (box plots, heatmaps, scatter plots, line/density charts) is rendered with Plotly for a consistent look across both sections.
-- **PDF export**: each section has a "Download PDF Report" button that bundles the visible tables and a rasterized image of every visible chart into a single PDF, respecting whichever sections are currently checked in the sidebar.
+- **Anonymization**: an "Anonymize Student Data" toggle replaces real names/emails with stable per-student pseudonyms everywhere — tables, charts, and PDF exports.
+- **LaTeX-aware rendering**: cleans up raw STACK/Moodle LaTeX and Maxima expression syntax (`\(...\)`, `%pi`, `sqrt(...)`, etc.) into properly rendered math wherever question text, submitted responses, and right answers are shown.
+- **Interactive Plotly charts**: every chart (box plots, heatmaps, scatter plots, line/density charts) is rendered with Plotly for a consistent look throughout.
+- **Organized sidebar**: Question Analysis and Quiz Analysis controls are grouped into their own sidebar sections, including a multiselect to choose which uploaded quizzes feed the Quiz Analysis aggregation.
+- **PDF export**: a single "Download PDF Report" button bundles the visible tables and a rasterized image of every visible chart into one PDF, with its own scope controls (include/exclude the Quiz Analysis summary, and pick which quiz(zes) get a full Question Analysis breakdown).
 - **Data validation**: flags mismatches between calculated per-question scores and Moodle's own recorded grade, and other basic sanity checks, directly in the UI.
-- **Sample data**: a ready-to-use sample quiz export is downloadable from the home page if you want to try the app without your own data.
 
 ## Project Structure
 
 ```
-Home.py                    # Landing page: overview, export instructions, sample data
-streamlit_app.py           # Thin entry point (re-exports Home.py) for Streamlit Cloud
+Home.py                              # Landing page: overview, nav button, walkthrough video, acknowledgements
+streamlit_app.py                     # Thin entry point (re-exports Home.py) for Streamlit Cloud
 pages/
-  Quiz_Analysis_Section.py     # Grades-export cohort analytics
-  Question_Analysis_Section.py # Responses-export per-question analytics
-analytics/                 # Parsing, metrics, PDF export, and other shared logic
-sample_data/                # Sample Moodle export, packaged as a .zip
-tests/                      # Pytest suite for the analytics/parsing pipeline
+  Question_and_Quiz_Analysis.py      # The single unified analysis page
+analytics/                           # Parsing, metrics, PDF export, and other shared logic
+tests/                               # Pytest suite for the analytics/parsing pipeline
 ```
 
 ## Technical Description
@@ -48,25 +48,44 @@ tests/                      # Pytest suite for the analytics/parsing pipeline
 
 ## Usage
 
-#### 1. Environment setup and package install
+#### 1. Clone the repo
+
+```
+git clone https://github.com/jumazevick/Interactive-quiz-analytics.git
+cd Interactive-quiz-analytics
+```
+
+#### 2. Environment setup and package install
+
+Requires **Python 3.10, 3.11, or 3.12** (see the note below if you only have 3.13).
 
 ```
 conda create -n hackathon-education python=3.10.8
 conda activate hackathon-education
 pip install poetry
-cd Interactive-quiz-analytics
 poetry install
 ```
 
-#### 2. Run the Streamlit app
+No conda? Any virtualenv tool works the same way, as long as it's created with a supported Python version, e.g.:
 
-From the repo root, run:
+```
+python3.10 -m venv .venv
+source .venv/bin/activate
+pip install poetry
+poetry install
+```
+
+> **Python 3.13 note:** `poetry install` can fail while building `rpds-py` from source, with an error like `the configured Python interpreter version (3.13) is newer than PyO3's maximum supported version (3.12)`. This is a real incompatibility in a pinned transitive dependency (via `jsonschema`/`referencing`), not a problem with this project's own code — use Python 3.10–3.12 as shown above to avoid it entirely.
+
+#### 3. Run the Streamlit app
+
+From the repo root, with the environment from step 2 active:
 
 ```
 streamlit run Home.py
 ```
 
-#### 3. Run the tests
+#### 4. Run the tests
 
 ```
 pytest

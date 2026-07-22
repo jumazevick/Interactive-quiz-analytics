@@ -81,6 +81,7 @@ def compute_repeated_wrong_answers(response_df: pd.DataFrame) -> pd.DataFrame:
             most_common_str = ", ".join(formatted_list)
             top_freq = top_wrong[0][1]
         else:
+            top_wrong = []
             most_common_str = "None"
             top_freq = 0
 
@@ -88,6 +89,7 @@ def compute_repeated_wrong_answers(response_df: pd.DataFrame) -> pd.DataFrame:
             "question": q,
             "most_common_incorrect_answer": most_common_str,
             "frequency": top_freq,
+            "top_wrong_expressions": top_wrong,
         })
 
     return pd.DataFrame(rows)

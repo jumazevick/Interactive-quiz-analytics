@@ -10,8 +10,11 @@ from analytics.parser import (
     build_grade_breakdown_rows,
     merge_grade_breakdown_rows,
 )
+from analytics.anonymize import anonymize_response_df
+from analytics.latex_utils import clean_moodle_latex
 from analytics.pdf_export import generate_pdf_report
-from pages.Question_Analysis_Section import build_question_analytics
+from analytics.quiz_metrics import build_quiz_attempt_frame
+from pages.Question_and_Quiz_Analysis import build_question_analytics
 
 
 def test_parse_response_cell():
@@ -162,11 +165,95 @@ def _tiny_png_bytes() -> bytes:
     return buf.getvalue()
 
 
+def test_question_and_right_answer_columns_are_display_only():
+    # Question i / Right answer i are additional display metadata — scoring must stay
+    # driven entirely by the ans/prt tags in Response i, unaffected by their presence.
+    df_with_metadata = pd.DataFrame([
+        {
+            "Last name": "Doe", "First name": "Jane", "Email address": "jane@example.com",
+            "State": "Finished", "Grade/10.00": "10.00",
+            "Question 1": "<p>What is <b>2+2</b>?</p>", "Response 1": "ans1: 4 [score]; prt1: # = 1 | prt1-1-T", "Right answer 1": "4",
+        },
+        {
+            "Last name": "Smith", "First name": "John", "Email address": "john@example.com",
+            "State": "Finished", "Grade/10.00": "0.00",
+            "Question 1": "What is 2+2?", "Response 1": "ans1: 3 [score]; prt1: # = 0 | prt1-1-F", "Right answer 1": "4",
+        },
+    ])
+    rows_with_metadata = build_response_rows(df_with_metadata, quiz_name="Quiz 1")
+
+    df_without_metadata = df_with_metadata.drop(columns=["Question 1", "Right answer 1"])
+    rows_without_metadata = build_response_rows(df_without_metadata, quiz_name="Quiz 1")
+
+    assert rows_with_metadata["grade"].tolist() == rows_without_metadata["grade"].tolist()
+    assert rows_with_metadata.loc[0, "question_text"] == "What is 2+2 ?"
+    assert rows_with_metadata.loc[0, "right_answer_text"] == "4"
+    assert rows_without_metadata.loc[0, "question_text"] == ""
+    assert rows_without_metadata.loc[0, "right_answer_text"] == ""
+
+
+def test_build_quiz_attempt_frame_collapses_per_question_rows_across_quizzes():
+    response_df = pd.DataFrame([
+        {"quiz_name": "QuizA", "student_name": "S0", "student_id": "s0@example.com", "question": "Q1", "attempt_idx": 0, "overall_grade": 10.0, "completed_dt": pd.Timestamp("2026-07-20"), "started_on": pd.Timestamp("2026-07-20")},
+        {"quiz_name": "QuizA", "student_name": "S0", "student_id": "s0@example.com", "question": "Q2", "attempt_idx": 0, "overall_grade": 10.0, "completed_dt": pd.Timestamp("2026-07-20"), "started_on": pd.Timestamp("2026-07-20")},
+        {"quiz_name": "QuizB", "student_name": "S0", "student_id": "s0@example.com", "question": "Q1", "attempt_idx": 0, "overall_grade": 5.0, "completed_dt": pd.Timestamp("2026-07-21"), "started_on": pd.Timestamp("2026-07-21")},
+    ])
+
+    attempt_frame = build_quiz_attempt_frame(response_df)
+
+    # Two attempts total (one per quiz), even though attempt_idx=0 repeats across quizzes.
+    assert len(attempt_frame) == 2
+    assert set(attempt_frame["quiz_name"]) == {"QuizA", "QuizB"}
+    assert attempt_frame[attempt_frame["quiz_name"] == "QuizA"]["overall_grade"].iloc[0] == 10.0
+    assert attempt_frame[attempt_frame["quiz_name"] == "QuizB"]["overall_grade"].iloc[0] == 5.0
+
+
+def test_clean_moodle_latex_merges_adjacent_inline_runs_without_dollar_collision():
+    # Round-5 regression: naively swapping \( -> $ and \) -> $ independently collides
+    # the closing $ of one run with the opening $ of the next into $$, which Streamlit
+    # then treats as display math. Merging \)\( pairs first must prevent that.
+    raw = r"\({3}\)\(\,{-3} + i{0}\,\)"
+    cleaned = clean_moodle_latex(raw)
+    assert "$$" not in cleaned
+    assert cleaned.count("$") == 2
+
+
+def test_clean_moodle_latex_display_block_and_header_mode():
+    assert clean_moodle_latex(r"\[x^2 + 1 = 0\]") == "$$x^2 + 1 = 0$$"
+    # Header mode can't render multi-line display math or literal newlines.
+    header_input = "Q4: " + r"\[x^2 + 1 = 0\]" + "\ncontinued"
+    header_out = clean_moodle_latex(header_input, is_header=True)
+    assert "$$" not in header_out
+    assert "\n" not in header_out
+
+
+def test_clean_moodle_latex_strips_html_and_displaystyle():
+    cleaned = clean_moodle_latex(r"<p>\(\displaystyle 2+2\)</p>")
+    assert cleaned == "$2+2$"
+
+
+def test_anonymize_response_df_masks_pii_consistently():
+    df = pd.DataFrame([
+        {"student_id": "jane@example.com", "student_name": "Jane Doe", "question": "Q1", "grade": 1.0},
+        {"student_id": "jane@example.com", "student_name": "Jane Doe", "question": "Q2", "grade": 0.0},
+        {"student_id": "john@example.com", "student_name": "John Smith", "question": "Q1", "grade": 0.5},
+    ])
+    anonymized = anonymize_response_df(df)
+
+    # Same real student maps to the same pseudonym everywhere.
+    jane_rows = anonymized[anonymized["student_name"] == anonymized.loc[0, "student_name"]]
+    assert len(jane_rows) == 2
+    assert "jane@example.com" not in anonymized["student_id"].values
+    assert "Jane Doe" not in anonymized["student_name"].values
+    assert anonymized["student_id"].str.endswith("@anonymized.edu").all()
+    assert anonymized["student_name"].str.startswith("Student ").all()
+
+
 def test_pdf_report_embeds_chart_images():
     png_bytes = _tiny_png_bytes()
 
     class FakePlotlyFigure:
-        def to_image(self, format="png", scale=2):
+        def to_image(self, format="png", scale=2, width=None, height=None):
             assert format == "png"
             return png_bytes
 
