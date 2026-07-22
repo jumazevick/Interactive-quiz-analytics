@@ -10,6 +10,8 @@ from analytics.parser import (
     build_grade_breakdown_rows,
     merge_grade_breakdown_rows,
 )
+from analytics.anonymize import anonymize_response_df
+from analytics.latex_utils import clean_moodle_latex
 from analytics.pdf_export import generate_pdf_report
 from analytics.quiz_metrics import build_quiz_attempt_frame
 from pages.Question_and_Quiz_Analysis import build_question_analytics
@@ -204,6 +206,47 @@ def test_build_quiz_attempt_frame_collapses_per_question_rows_across_quizzes():
     assert set(attempt_frame["quiz_name"]) == {"QuizA", "QuizB"}
     assert attempt_frame[attempt_frame["quiz_name"] == "QuizA"]["overall_grade"].iloc[0] == 10.0
     assert attempt_frame[attempt_frame["quiz_name"] == "QuizB"]["overall_grade"].iloc[0] == 5.0
+
+
+def test_clean_moodle_latex_merges_adjacent_inline_runs_without_dollar_collision():
+    # Round-5 regression: naively swapping \( -> $ and \) -> $ independently collides
+    # the closing $ of one run with the opening $ of the next into $$, which Streamlit
+    # then treats as display math. Merging \)\( pairs first must prevent that.
+    raw = r"\({3}\)\(\,{-3} + i{0}\,\)"
+    cleaned = clean_moodle_latex(raw)
+    assert "$$" not in cleaned
+    assert cleaned.count("$") == 2
+
+
+def test_clean_moodle_latex_display_block_and_header_mode():
+    assert clean_moodle_latex(r"\[x^2 + 1 = 0\]") == "$$x^2 + 1 = 0$$"
+    # Header mode can't render multi-line display math or literal newlines.
+    header_input = "Q4: " + r"\[x^2 + 1 = 0\]" + "\ncontinued"
+    header_out = clean_moodle_latex(header_input, is_header=True)
+    assert "$$" not in header_out
+    assert "\n" not in header_out
+
+
+def test_clean_moodle_latex_strips_html_and_displaystyle():
+    cleaned = clean_moodle_latex(r"<p>\(\displaystyle 2+2\)</p>")
+    assert cleaned == "$2+2$"
+
+
+def test_anonymize_response_df_masks_pii_consistently():
+    df = pd.DataFrame([
+        {"student_id": "jane@example.com", "student_name": "Jane Doe", "question": "Q1", "grade": 1.0},
+        {"student_id": "jane@example.com", "student_name": "Jane Doe", "question": "Q2", "grade": 0.0},
+        {"student_id": "john@example.com", "student_name": "John Smith", "question": "Q1", "grade": 0.5},
+    ])
+    anonymized = anonymize_response_df(df)
+
+    # Same real student maps to the same pseudonym everywhere.
+    jane_rows = anonymized[anonymized["student_name"] == anonymized.loc[0, "student_name"]]
+    assert len(jane_rows) == 2
+    assert "jane@example.com" not in anonymized["student_id"].values
+    assert "Jane Doe" not in anonymized["student_name"].values
+    assert anonymized["student_id"].str.endswith("@anonymized.edu").all()
+    assert anonymized["student_name"].str.startswith("Student ").all()
 
 
 def test_pdf_report_embeds_chart_images():

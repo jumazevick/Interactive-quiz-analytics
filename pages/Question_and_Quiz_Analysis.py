@@ -6,8 +6,9 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from analytics.anonymize import anonymize_response_df
 from analytics.difficulty import compute_difficulty_metrics
-from analytics.latex_utils import format_moodle_latex
+from analytics.latex_utils import clean_moodle_latex, extract_stack_answer_latex, maxima_expr_to_latex
 from analytics.parser import (
     build_grade_breakdown_rows,
     build_response_rows,
@@ -83,6 +84,29 @@ st.set_page_config(
 st.title("Question & Quiz Analysis")
 st.header("Moodle/STACK Question & Quiz Analytics")
 
+# Sidebar overflow fix: with 13 section checkboxes plus a quiz selector, the sidebar
+# can outgrow the viewport and hide the quiz dropdown below the fold without scrolling.
+# Target every testid Streamlit has used for the sidebar's scroll container across
+# versions (stSidebarContent / stSidebarUserContent in current releases, the older
+# `> div:first-child` structure in earlier ones) so this doesn't silently stop working
+# on a Streamlit upgrade.
+st.markdown(
+    """
+    <style>
+    section[data-testid="stSidebar"] {
+        overflow-y: auto !important;
+    }
+    section[data-testid="stSidebar"] > div:first-child,
+    [data-testid="stSidebarContent"],
+    [data-testid="stSidebarUserContent"] {
+        overflow-y: auto !important;
+        max-height: 100vh !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # Sidebar - Options and Section Checkboxes (always visible before upload)
 st.sidebar.title("Options")
 uploaded_files = st.sidebar.file_uploader(
@@ -94,12 +118,16 @@ uploaded_files = st.sidebar.file_uploader(
 )
 uploaded_files, used_cached_upload = sync_uploaded_files(uploaded_files)
 if used_cached_upload:
-    st.sidebar.caption("📎 Using previously uploaded file(s): " + ", ".join(f.name for f in uploaded_files))
+    with st.sidebar.expander("📎 Uploaded Files", expanded=False):
+        for f in uploaded_files:
+            st.write(f.name)
 
 if st.sidebar.button("🗑️ Clear / Reset All Uploaded Files", use_container_width=True):
     clear_uploaded_files()
     st.cache_data.clear()
     st.rerun()
+
+anonymize_data = st.sidebar.checkbox("🔒 Anonymize Student Data", value=False)
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Visible Sections")
@@ -174,6 +202,8 @@ def load_quiz_data(files) -> tuple[list[dict[str, object]], pd.DataFrame]:
 
 if uploaded_files:
     quiz_metadata, response_df = load_quiz_data(uploaded_files)
+    if anonymize_data:
+        response_df = anonymize_response_df(response_df)
     if response_df.empty:
         st.info("No usable question rows were found in the uploaded files.")
     else:
@@ -285,6 +315,7 @@ if uploaded_files:
                     question_metrics[["question", "attempts", "students", "avg_score", "percent_valid", "percent_invalid", "syntax_error_count"]]
                     .rename(columns={"avg_score": "average_score"}),
                     use_container_width=True,
+                    hide_index=True,
                 )
 
         # 2. Question Difficulty Analysis Section
@@ -295,8 +326,8 @@ if uploaded_files:
                 st.caption("This section evaluates how difficult each question was and how effectively it separates stronger from weaker students (sourced from Best Attempt per Student).")
                 st.caption("⚠️ **Note on Discrimination (D)**: With small cohort sizes (around 30 students or fewer), the discrimination index is noisy and should be interpreted with caution.")
 
-                st.dataframe(ranked_difficulty.head(10), use_container_width=True)
-                st.dataframe(difficulty_metrics, use_container_width=True)
+                st.dataframe(ranked_difficulty.head(10), use_container_width=True, hide_index=True)
+                st.dataframe(difficulty_metrics, use_container_width=True, hide_index=True)
 
                 col1, col2 = st.columns(2)
                 with col1:
@@ -334,26 +365,34 @@ if uploaded_files:
                 st.caption("Question text and the correct answer for each item, alongside where students went wrong (Best Attempt per Student). Populated only if the Moodle export included the Question text / Right answer Display options.")
                 for q in question_order:
                     detail = build_question_detail(pool_b_df, q)
-                    question_text = format_moodle_latex(detail["question_text"])
-                    right_answer_text = format_moodle_latex(detail["right_answer_text"])
+                    # Expander labels render as plain text (no Markdown/LaTeX/KaTeX at
+                    # all) — showing cleaned-but-still-raw LaTeX there just displays the
+                    # literal delimiters. Keep the collapsed title to the question number
+                    # only; the full question text renders (as real math) once expanded.
+                    question_text = clean_moodle_latex(detail["question_text"])
+                    # Right Answer often carries the same "Seed: ...; ansN: <expr> [tag]"
+                    # diagnostic dump as Submitted Response for STACK questions, so it
+                    # gets the same ansN-extraction treatment (falls back to plain LaTeX
+                    # cleanup when there's no ansN: pattern, e.g. a non-STACK quiz).
+                    right_answer_text = extract_stack_answer_latex(detail["right_answer_text"])
                     drilldown = build_error_drilldown(pool_b_df, q)
-                    with st.expander(f"{q}: {question_text[:80]}"):
+                    with st.expander(f"Question {_q_num(q)}"):
                         st.markdown(f"**Question:** {question_text}")
                         st.markdown(f"**Right Answer:** {right_answer_text}")
                         if drilldown.empty:
                             st.success("No incorrect or partial-credit responses for this question among best attempts.")
                         else:
                             st.write(f"**Student Error Drill-Down** ({len(drilldown)} students didn't get full credit):")
-                            st.dataframe(drilldown[["Student Name", "Email", "Score", "Status"]], use_container_width=True)
+                            st.dataframe(drilldown[["Student Name", "Email", "Score", "Status"]], use_container_width=True, hide_index=True)
                             st.caption("Submitted response vs. right answer (rendered as math where applicable):")
                             for _, row in drilldown.iterrows():
-                                submitted = format_moodle_latex(row["Submitted Response"])
-                                right_answer = format_moodle_latex(row["Right Answer"])
+                                submitted = extract_stack_answer_latex(row["Submitted Response"])
+                                right_answer = extract_stack_answer_latex(row["Right Answer"])
                                 st.markdown(f"**{row['Student Name']}** — Submitted: {submitted}  \nRight Answer: {right_answer}")
                             flat = drilldown.copy()
                             flat.insert(0, "Question", q)
-                            flat["Submitted Response"] = flat["Submitted Response"].apply(format_moodle_latex)
-                            flat["Right Answer"] = flat["Right Answer"].apply(format_moodle_latex)
+                            flat["Submitted Response"] = flat["Submitted Response"].apply(extract_stack_answer_latex)
+                            flat["Right Answer"] = flat["Right Answer"].apply(extract_stack_answer_latex)
                             item_details_rows.append(flat)
 
         item_details_pdf_table = pd.concat(item_details_rows, ignore_index=True) if item_details_rows else pd.DataFrame()
@@ -373,8 +412,8 @@ if uploaded_files:
                 st.caption("This section analyses how students answered each question, including common incorrect responses and potential misconceptions.")
                 if not has_prt_data:
                     st.info("Upload a Responses file as well to see PRT/answer-note analysis for this quiz.")
-                    st.dataframe(response_outcomes, use_container_width=True)
-                    st.dataframe(valid_invalid, use_container_width=True)
+                    st.dataframe(response_outcomes, use_container_width=True, hide_index=True)
+                    st.dataframe(valid_invalid, use_container_width=True, hide_index=True)
                 else:
                     col1, col2 = st.columns(2)
                     with col1:
@@ -402,7 +441,14 @@ if uploaded_files:
                         st.plotly_chart(fig2, use_container_width=True, key="response_validity_bar")
                         response_section_charts.append({"title": "Valid vs Invalid Attempts (All Attempts)", "figure": fig2})
 
-                    st.dataframe(repeated_wrong_answers, use_container_width=True)
+                    st.write("**Most Common Incorrect Answers** (rendered as math where applicable):")
+                    for _, row in repeated_wrong_answers.iterrows():
+                        top_wrong = row.get("top_wrong_expressions") or []
+                        if top_wrong:
+                            rendered = ", ".join(f"${maxima_expr_to_latex(expr)}$ ({cnt})" for expr, cnt in top_wrong)
+                        else:
+                            rendered = "None"
+                        st.markdown(f"**{row['question']}**: {rendered}")
 
                     if not prt_pass_rates.empty:
                         # dropna=False + fill_value=0 so a missing PRT pass-rate cell can't
@@ -453,7 +499,7 @@ if uploaded_files:
             with st.container(border=True):
                 st.subheader("6. Question Metrics")
                 st.caption("This section provides a consolidated numerical summary of every question-level metric and serves as the primary exportable dataset.")
-                st.dataframe(metrics_export, use_container_width=True)
+                st.dataframe(metrics_export, use_container_width=True, hide_index=True)
                 st.caption("⚠️ **Note on Discrimination (D)**: With small cohort sizes (around 30 students or fewer), the discrimination index is noisy and should be interpreted with caution.")
 
         # 7. Interpretation Notes Section
@@ -490,7 +536,7 @@ if uploaded_files:
             with st.container(border=True):
                 st.subheader("8. Merged List of Users and Files")
                 st.caption("Combines every uploaded quiz file into one view. Each row is one attempt, with the student, quiz, and date.")
-                st.dataframe(attempt_frame, use_container_width=True)
+                st.dataframe(attempt_frame, use_container_width=True, hide_index=True)
                 quiz_merged_table = attempt_frame
 
         if show_quiz_summary:
@@ -504,7 +550,7 @@ if uploaded_files:
                         default=["student_count", "attempt_rate", "mean_grade", "grade_variance", "mean_highest_grade", "attempt_count"],
                     )
                     quiz_stats_df = compute_quiz_stats(attempt_frame, selected_quiz_stats)
-                    st.dataframe(quiz_stats_df, use_container_width=True)
+                    st.dataframe(quiz_stats_df, use_container_width=True, hide_index=True)
                     quiz_summary_table = quiz_stats_df
                 else:
                     st.info("No quiz attempt data available yet.")
@@ -627,7 +673,7 @@ if uploaded_files:
             sections.append({
                 "title": f"{prefix}Question Response Distribution",
                 "caption": "Response outcomes and top wrong answers",
-                "df": q_response_outcomes.merge(q_repeated_wrong, on="question", how="left"),
+                "df": q_response_outcomes.merge(q_repeated_wrong.drop(columns=["top_wrong_expressions"], errors="ignore"), on="question", how="left"),
             })
 
             student_matrix_q = q_pool_b.pivot_table(
@@ -670,7 +716,8 @@ if uploaded_files:
             if show_item_details:
                 pdf_sections.append({"title": "3. Question Item Details & Error Drill-Down", "caption": "Question text, right answer, and wrong-response drill-down (Best Attempt)", "df": item_details_pdf_table})
             if show_response:
-                pdf_sections.append({"title": "4. Question Response Distribution", "caption": "Response outcomes and top wrong answers", "df": response_outcomes.merge(repeated_wrong_answers, on="question", how="left"), "charts": response_section_charts})
+                repeated_wrong_answers_pdf = repeated_wrong_answers.drop(columns=["top_wrong_expressions"], errors="ignore")
+                pdf_sections.append({"title": "4. Question Response Distribution", "caption": "Response outcomes and top wrong answers", "df": response_outcomes.merge(repeated_wrong_answers_pdf, on="question", how="left"), "charts": response_section_charts})
             if show_student:
                 pdf_sections.append({"title": "5. Student Performance Matrix", "caption": "Per-student score per question (Best Attempt)", "df": student_matrix.reset_index(), "charts": student_section_charts})
             if show_metrics:
@@ -732,14 +779,15 @@ else:
             st.markdown("<h5 style='margin-top:0;'>⚙️ Moodle Export Steps</h5>", unsafe_allow_html=True)
             st.markdown(
                 """
-                1️⃣ **Navigate to your target Quiz** in Moodle.
-                2️⃣ Open **Quiz results**.
-                3️⃣ Select **Responses report** from the Moodle report dropdown menu.
-                4️⃣ Under **Display options**, check the boxes for: **Question text**, **Response**, and **Right answer**.
-                5️⃣ Click **Display report**.
-                6️⃣ Download the generated report as a **CSV** or **XLSX** file.
+                1️⃣ **Navigate to your target Quiz** in Moodle.<br>
+                2️⃣ Open **Quiz results**.<br>
+                3️⃣ Select **Responses report** from the Moodle report dropdown menu.<br>
+                4️⃣ Under **Display options**, check the boxes for: **Question text**, **Response**, and **Right answer**.<br>
+                5️⃣ Click **Display report**.<br>
+                6️⃣ Download the generated report as a **CSV** or **XLSX** file.<br>
                 7️⃣ Verify that your file contains the required structure below.
-                """
+                """,
+                unsafe_allow_html=True,
             )
 
         with st.container(border=True):

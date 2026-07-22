@@ -59,14 +59,15 @@ with st.container(border=True):
         st.markdown("<h5 style='margin-top:0;'>⚙️ Moodle Export Steps</h5>", unsafe_allow_html=True)
         st.markdown(
             """
-            1️⃣ **Navigate to your target Quiz** in Moodle.
-            2️⃣ Open **Quiz results**.
-            3️⃣ Select **Responses report** from the Moodle report dropdown menu.
-            4️⃣ Under **Display options**, check the boxes for: **Question text**, **Response**, and **Right answer**.
-            5️⃣ Click **Display report**.
-            6️⃣ Download the generated report as a **CSV** or **XLSX** file.
+            1️⃣ **Navigate to your target Quiz** in Moodle.<br>
+            2️⃣ Open **Quiz results**.<br>
+            3️⃣ Select **Responses report** from the Moodle report dropdown menu.<br>
+            4️⃣ Under **Display options**, check the boxes for: **Question text**, **Response**, and **Right answer**.<br>
+            5️⃣ Click **Display report**.<br>
+            6️⃣ Download the generated report as a **CSV** or **XLSX** file.<br>
             7️⃣ Verify that your file contains the required structure below.
-            """
+            """,
+            unsafe_allow_html=True,
         )
 
     # Inner card for required columns
@@ -118,8 +119,8 @@ with st.container(border=True):
     st.markdown(
         """
         Special thanks to:
+        - **Ernest** for the question analysis research, technical setup and development, and implementation.
         - **Sage** for the technical setup.
-        - **Ernest** for the question analysis implementation and UI improvement.
         - **Otis** for the question analysis research.
         """
     )
