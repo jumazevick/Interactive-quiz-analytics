@@ -1,4 +1,4 @@
-# Sage Foundation: tech for good education team 1
+# Sage Foundation: Tech for Food Education Team 1
 
 ## Moodle/STACK Interactive Quiz Analytics
 
@@ -10,6 +10,11 @@ The app is a single **Question & Quiz Analysis** page, linked from the home page
 
 - **Question Analysis** (top, scoped to whichever quiz is selected) — question summary, difficulty/discrimination, per-question text with a right-answer/error drill-down, response distribution and PRT pass rates, a student-by-question performance matrix, and a consolidated metrics table.
 - **Quiz Analysis** (bottom, combined across every uploaded quiz you choose to include) — merged attempt list, summary stats, grade distribution, engagement over time, attempts-vs-grade correlation, and metric trends across quizzes.
+
+Special thanks to:
+- **Ernest for the question analysis research, technical setup and development, and implementation.
+- **Sage for the technical setup.
+- **Otis for the question analysis research.
 
 ## Features
 
