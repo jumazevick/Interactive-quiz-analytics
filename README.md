@@ -12,9 +12,9 @@ The app is a single **Question & Quiz Analysis** page, linked from the home page
 - **Quiz Analysis** (bottom, combined across every uploaded quiz you choose to include) — merged attempt list, summary stats, grade distribution, engagement over time, attempts-vs-grade correlation, and metric trends across quizzes.
 
 Special thanks to:
-- **Ernest for the question analysis research, technical setup and development, and implementation.
-- **Sage for the technical setup.
-- **Otis for the question analysis research.
+- **Ernest** for the question analysis research, technical setup and development, and implementation.
+- **Sage** for the technical setup.
+- **Otis** for the question analysis research.
 
 ## Features
 
