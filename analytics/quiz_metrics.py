@@ -71,16 +71,23 @@ def compute_quiz_stats(attempt_frame: pd.DataFrame, selected_stats: list[str]) -
 
 def build_boxplot_figure(attempt_frame: pd.DataFrame) -> go.Figure:
     """Grade distribution per quiz, with an overlaid mean_grade line — same construction
-    as the original Quiz Analysis boxplot, keyed by quiz_name."""
+    as the original Quiz Analysis boxplot, keyed by quiz_name.
+
+    Without an explicit `color=`, px.box puts every box in a single trace sharing one
+    color (just the first palette entry) regardless of `color_discrete_sequence` — every
+    quiz rendered identically. `color="quiz_name"` gives each quiz its own trace/color;
+    the previous hardcoded black point markers were also invisible against a dark theme.
+    """
     fig = px.box(
         attempt_frame,
         x="quiz_name",
         y="overall_grade",
         points="all",
-        color_discrete_sequence=px.colors.qualitative.Set3,
+        color="quiz_name",
+        color_discrete_sequence=px.colors.qualitative.Bold,
         labels={"quiz_name": "Quiz", "overall_grade": "Grade"},
     )
-    fig.update_traces(marker=dict(color="black", size=4, opacity=0.6), jitter=0.3)
+    fig.update_traces(marker=dict(size=4, opacity=0.6), jitter=0.3)
 
     means = attempt_frame.groupby("quiz_name")["overall_grade"].mean().reset_index()
     fig.add_trace(go.Scatter(

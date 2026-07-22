@@ -2,7 +2,10 @@ import re
 
 import streamlit as st
 
+from analytics.ui_theme import inject_global_styles
+
 st.set_page_config(page_title="Moodle/STACK Interactive Quiz Analytics", page_icon=":bar_chart:", layout="wide")
+inject_global_styles()
 
 
 def render_youtube_video(url: str) -> None:
@@ -44,63 +47,31 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Page Navigation link
+# Page Navigation link — styled as a prominent call-to-action button
+st.markdown(
+    """
+    <style>
+    [data-testid="stPageLink"] {
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        border-radius: 10px;
+        padding: 0.5rem 0.5rem;
+        box-shadow: 0 2px 8px rgba(30, 60, 114, 0.35);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    [data-testid="stPageLink"]:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(30, 60, 114, 0.45);
+    }
+    [data-testid="stPageLink"] p {
+        color: white !important;
+        font-size: 1.15rem !important;
+        font-weight: 700 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 st.page_link("pages/Question_and_Quiz_Analysis.py", label="📊 Go to Question & Quiz Analysis", use_container_width=True)
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# Main Export Steps container card
-with st.container(border=True):
-    st.markdown("### 📖 How to Export Quiz Attempt Data from Moodle")
-    st.write("Follow these step-by-step instructions to download a compliant quiz attempt dataset from your Moodle course.")
-
-    # Inner card for export steps
-    with st.container(border=True):
-        st.markdown("<h5 style='margin-top:0;'>⚙️ Moodle Export Steps</h5>", unsafe_allow_html=True)
-        st.markdown(
-            """
-            1️⃣ **Navigate to your target Quiz** in Moodle.<br>
-            2️⃣ Open **Quiz results**.<br>
-            3️⃣ Select **Responses report** from the Moodle report dropdown menu.<br>
-            4️⃣ Under **Display options**, check the boxes for: **Question text**, **Response**, and **Right answer**.<br>
-            5️⃣ Click **Display report**.<br>
-            6️⃣ Download the generated report as a **CSV** or **XLSX** file.<br>
-            7️⃣ Verify that your file contains the required structure below.
-            """,
-            unsafe_allow_html=True,
-        )
-
-    # Inner card for required columns
-    with st.container(border=True):
-        st.markdown("### 📦 Expected Data Format (Columns from Left to Right)")
-        st.write("Your uploaded CSV or XLSX file must contain column headers ordered sequentially across the table:")
-        st.markdown(
-            """
-            **1. Columns 1 to 8 (Student & Quiz Metadata):**
-            `Last name` | `First name` | `Email address` | `State` | `Started on` | `Completed` | `Time taken` | `Grade/10.00`
-
-            **2. Columns 9+ (Repeating Question Triplets):**
-            - `Question 1` | `Response 1` | `Right answer 1`
-            - `Question 2` | `Response 2` | `Right answer 2`
-            - ...
-            - `Question N` | `Response N` | `Right answer N`
-            """
-        )
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# Sample Data Download Section
-with st.container(border=True):
-    c_text, c_btn = st.columns([3, 1])
-    with c_text:
-        st.markdown("**Want to try some sample data?**")
-        st.write("Download pre-configured mock quizzes and response reports to see the app in action.")
-    with c_btn:
-        st.link_button(
-            "📥 Sample Quiz Files",
-            url="https://drive.google.com/drive/folders/1r7c1asoMFwaLORaQVKisJk7xpWazzC5I?usp=sharing",
-            use_container_width=True,
-        )
 
 st.markdown("<br>", unsafe_allow_html=True)
 

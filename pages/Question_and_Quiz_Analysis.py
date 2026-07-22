@@ -33,6 +33,7 @@ from analytics.quiz_metrics import (
 from analytics.response_analysis import compute_repeated_wrong_answers, compute_response_outcomes
 from analytics.summary import build_export_summary
 from analytics.syntax_analysis import compute_syntax_analysis
+from analytics.ui_theme import inject_global_styles
 from analytics.upload_cache import CACHE_HASH_FUNCS, clear_uploaded_files, get_uploader_key, sync_uploaded_files
 from analytics.validation import audit_question_data
 
@@ -82,7 +83,6 @@ st.set_page_config(
 )
 
 st.title("Question & Quiz Analysis")
-st.header("Moodle/STACK Question & Quiz Analytics")
 
 # Sidebar overflow fix: with 13 section checkboxes plus a quiz selector, the sidebar
 # can outgrow the viewport and hide the quiz dropdown below the fold without scrolling.
@@ -128,25 +128,6 @@ if st.sidebar.button("🗑️ Clear / Reset All Uploaded Files", use_container_w
     st.rerun()
 
 anonymize_data = st.sidebar.checkbox("🔒 Anonymize Student Data", value=False)
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("Visible Sections")
-st.sidebar.caption("Question Analysis (selected quiz)")
-show_summary = st.sidebar.checkbox("1. Question Summary", value=True)
-show_difficulty = st.sidebar.checkbox("2. Question Difficulty Analysis", value=True)
-show_item_details = st.sidebar.checkbox("3. Question Item Details & Error Drill-Down", value=True)
-show_response = st.sidebar.checkbox("4. Question Response Distribution", value=True)
-show_student = st.sidebar.checkbox("5. Student Performance by Question", value=True)
-show_metrics = st.sidebar.checkbox("6. Question Metrics", value=True)
-show_notes = st.sidebar.checkbox("7. Interpretation Notes", value=True)
-
-st.sidebar.caption("Quiz Analysis (combined across all uploaded files)")
-show_quiz_merged = st.sidebar.checkbox("8. Merged List of Users and Files")
-show_quiz_summary = st.sidebar.checkbox("9. Summary of Quiz Stats")
-show_quiz_boxplot = st.sidebar.checkbox("10. Quiz Grade Distribution (Box Plot)")
-show_quiz_engagement = st.sidebar.checkbox("11. Engagement Over Time")
-show_quiz_scatter = st.sidebar.checkbox("12. Scatter Plot: Attempts vs Grades")
-show_quiz_linegraph = st.sidebar.checkbox("13. Line Graph of Various Metrics")
 
 
 @st.cache_data(show_spinner=False, hash_funcs=CACHE_HASH_FUNCS)
@@ -200,19 +181,77 @@ def load_quiz_data(files) -> tuple[list[dict[str, object]], pd.DataFrame]:
     return quiz_metadata, pd.concat(combined_frames, ignore_index=True)
 
 
+quiz_metadata: list[dict[str, object]] = []
+response_df = pd.DataFrame()
+quiz_names: list[str] = []
+selected_quiz_name = None
+
 if uploaded_files:
     quiz_metadata, response_df = load_quiz_data(uploaded_files)
     if anonymize_data:
         response_df = anonymize_response_df(response_df)
+    if not response_df.empty:
+        quiz_names = [item["quiz_name"] for item in quiz_metadata]
+
+# --- Sidebar: Question Analysis section (grouped separately so it can't get lost
+# among the Quiz Analysis checkboxes below) ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("📊 Question Analysis")
+st.sidebar.caption("Applies to the single quiz selected below")
+if quiz_names:
+    if len(quiz_names) > 1:
+        selected_quiz_name = st.sidebar.selectbox("Select Quiz", quiz_names, index=0)
+    else:
+        selected_quiz_name = quiz_names[0]
+show_summary = st.sidebar.checkbox("1. Question Summary", value=True)
+show_difficulty = st.sidebar.checkbox("2. Question Difficulty Analysis", value=True)
+show_item_details = st.sidebar.checkbox("3. Question Item Details & Error Drill-Down", value=True)
+show_response = st.sidebar.checkbox("4. Question Response Distribution", value=True)
+show_student = st.sidebar.checkbox("5. Student Performance by Question", value=True)
+show_metrics = st.sidebar.checkbox("6. Question Metrics", value=True)
+show_notes = st.sidebar.checkbox("7. Interpretation Notes", value=True)
+
+# --- Sidebar: Quiz Analysis section — each sub-widget lives right under the
+# checkbox/section it configures, instead of being scattered wherever its section
+# happens to render in the main body. ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("📈 Quiz Analysis")
+st.sidebar.caption("Combined across the quizzes selected below")
+quizzes_for_analysis = quiz_names
+if quiz_names:
+    quizzes_for_analysis = st.sidebar.multiselect(
+        "Select quizzes to include",
+        options=quiz_names,
+        default=quiz_names,
+    )
+show_quiz_merged = st.sidebar.checkbox("8. Merged List of Users and Files")
+show_quiz_summary = st.sidebar.checkbox("9. Summary of Quiz Stats")
+selected_quiz_stats: list[str] = []
+if show_quiz_summary:
+    selected_quiz_stats = st.sidebar.multiselect(
+        "Select Statistics to Display",
+        ["student_count", "attempt_rate", "mean_grade", "grade_variance", "mean_highest_grade", "attempt_count"],
+        default=["student_count", "attempt_rate", "mean_grade", "grade_variance", "mean_highest_grade", "attempt_count"],
+    )
+show_quiz_boxplot = st.sidebar.checkbox("10. Quiz Grade Distribution (Box Plot)")
+show_quiz_engagement = st.sidebar.checkbox("11. Engagement Over Time")
+show_quiz_scatter = st.sidebar.checkbox("12. Scatter Plot: Attempts vs Grades")
+quiz_grade_type = "Average Grade"
+if show_quiz_scatter:
+    quiz_grade_type = st.sidebar.radio("Select Grade Type", ("Highest Grade", "Average Grade", "Minimum Grade"))
+show_quiz_linegraph = st.sidebar.checkbox("13. Line Graph of Various Metrics")
+selected_quiz_metrics: list[str] = []
+if show_quiz_linegraph:
+    selected_quiz_metrics = st.sidebar.multiselect(
+        "Select Metrics to Display",
+        ["student_count", "attempt_rate", "mean_grade", "grade_variance"],
+        default=["student_count", "attempt_rate", "mean_grade", "grade_variance"],
+    )
+
+if uploaded_files:
     if response_df.empty:
         st.info("No usable question rows were found in the uploaded files.")
     else:
-        quiz_names = [item["quiz_name"] for item in quiz_metadata]
-        if len(quiz_names) > 1:
-            selected_quiz_name = st.sidebar.selectbox("Select Quiz", quiz_names, index=0)
-        else:
-            selected_quiz_name = quiz_names[0]
-
         selected_df = response_df[response_df["quiz_name"] == selected_quiz_name].copy()
         analytics = build_question_analytics(selected_df, str(selected_quiz_name))
 
@@ -442,13 +481,20 @@ if uploaded_files:
                         response_section_charts.append({"title": "Valid vs Invalid Attempts (All Attempts)", "figure": fig2})
 
                     st.write("**Most Common Incorrect Answers** (rendered as math where applicable):")
-                    for _, row in repeated_wrong_answers.iterrows():
-                        top_wrong = row.get("top_wrong_expressions") or []
-                        if top_wrong:
-                            rendered = ", ".join(f"${maxima_expr_to_latex(expr)}$ ({cnt})" for expr, cnt in top_wrong)
-                        else:
-                            rendered = "None"
-                        st.markdown(f"**{row['question']}**: {rendered}")
+                    with st.container(border=True):
+                        header_cols = st.columns([1, 6])
+                        header_cols[0].markdown("**Question**")
+                        header_cols[1].markdown("**Most Common Incorrect Answers**")
+                        st.divider()
+                        for _, row in repeated_wrong_answers.iterrows():
+                            top_wrong = row.get("top_wrong_expressions") or []
+                            if top_wrong:
+                                rendered = ", ".join(f"${maxima_expr_to_latex(expr)}$ ({cnt})" for expr, cnt in top_wrong)
+                            else:
+                                rendered = "None"
+                            row_cols = st.columns([1, 6])
+                            row_cols[0].markdown(f"**{row['question']}**")
+                            row_cols[1].markdown(rendered)
 
                     if not prt_pass_rates.empty:
                         # dropna=False + fill_value=0 so a missing PRT pass-rate cell can't
@@ -520,10 +566,10 @@ if uploaded_files:
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.header("Quiz Analysis")
-        st.caption(f"Combined across all {len(quiz_names)} uploaded quiz file(s), independent of the quiz selected above.")
+        st.caption(f"Combined across {len(quizzes_for_analysis)} of {len(quiz_names)} uploaded quiz file(s) (see 'Select quizzes to include' in the sidebar), independent of the quiz selected above.")
 
-        # 8-13. Quiz Analysis (combined across every uploaded quiz file)
-        attempt_frame = build_quiz_attempt_frame(response_df)
+        # 8-13. Quiz Analysis (combined across the quizzes selected in the sidebar)
+        attempt_frame = build_quiz_attempt_frame(response_df[response_df["quiz_name"].isin(quizzes_for_analysis)])
 
         quiz_merged_table = None
         quiz_summary_table = None
@@ -544,11 +590,6 @@ if uploaded_files:
                 st.subheader("9. Summary of Quiz Stats")
                 st.caption("Aggregated statistics per quiz, combined across all uploaded files.")
                 if not attempt_frame.empty:
-                    selected_quiz_stats = st.sidebar.multiselect(
-                        "Select Statistics to Display",
-                        ["student_count", "attempt_rate", "mean_grade", "grade_variance", "mean_highest_grade", "attempt_count"],
-                        default=["student_count", "attempt_rate", "mean_grade", "grade_variance", "mean_highest_grade", "attempt_count"],
-                    )
                     quiz_stats_df = compute_quiz_stats(attempt_frame, selected_quiz_stats)
                     st.dataframe(quiz_stats_df, use_container_width=True, hide_index=True)
                     quiz_summary_table = quiz_stats_df
@@ -587,8 +628,7 @@ if uploaded_files:
                 st.subheader("12. Scatter Plot: Attempts vs Grades")
                 st.caption("Correlation between number of attempts and grade outcome, combined across all uploaded files.")
                 if not attempt_frame.empty:
-                    grade_type = st.sidebar.radio("Select Grade Type", ("Highest Grade", "Average Grade", "Minimum Grade"))
-                    result = build_scatter_figure(attempt_frame, grade_type)
+                    result = build_scatter_figure(attempt_frame, quiz_grade_type)
                     if result is not None:
                         fig, correlation, y_label, _ = result
                         fig.update_layout(template="plotly")
@@ -603,11 +643,6 @@ if uploaded_files:
                 st.subheader("13. Line Graph of Various Metrics")
                 st.caption("Trend of selected metrics across quizzes, combined across all uploaded files.")
                 if not attempt_frame.empty:
-                    selected_quiz_metrics = st.sidebar.multiselect(
-                        "Select Metrics to Display",
-                        ["student_count", "attempt_rate", "mean_grade", "grade_variance"],
-                        default=["student_count", "attempt_rate", "mean_grade", "grade_variance"],
-                    )
                     if selected_quiz_metrics:
                         trend_data = build_metric_trend_data(attempt_frame, selected_quiz_metrics)
                         fig = build_line_graph_figure(trend_data)
@@ -773,8 +808,6 @@ else:
             - export a single, consolidated PDF report
             """
         )
-        st.write("If you need help downloading the files from Moodle, use the homepage guide.")
-
         with st.container(border=True):
             st.markdown("<h5 style='margin-top:0;'>⚙️ Moodle Export Steps</h5>", unsafe_allow_html=True)
             st.markdown(
@@ -805,6 +838,18 @@ else:
                 - `Question N` | `Response N` | `Right answer N`
                 """
             )
+
+        with st.container(border=True):
+            c_text, c_btn = st.columns([3, 1])
+            with c_text:
+                st.markdown("**Want to try some sample data?**")
+                st.write("Download pre-configured anonymized response reports to see the app in action or how your data should look.")
+            with c_btn:
+                st.link_button(
+                    "📥 Sample Quiz Files",
+                    url="https://drive.google.com/drive/folders/1r7c1asoMFwaLORaQVKisJk7xpWazzC5I?usp=sharing",
+                    use_container_width=True,
+                )
 
 # Persistent Footer
 st.markdown("<br><hr>", unsafe_allow_html=True)
