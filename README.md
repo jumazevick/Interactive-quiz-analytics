@@ -1,4 +1,4 @@
-# Sage Foundation: Tech for Food Education Team 1
+# Sage Foundation: Tech for Good Education Team 1
 
 ## Moodle/STACK Interactive Quiz Analytics
 
@@ -26,10 +26,13 @@ Special thanks to:
 - **LaTeX-aware rendering**: cleans up raw STACK/Moodle LaTeX and Maxima expression syntax (`\(...\)`, `%pi`, `%e`, `sqrt(...)`, `^(...)`, etc.) into properly rendered math wherever question text, submitted responses, and right answers are shown, and repairs the mojibake (UTF-8 text mis-decoded as Latin-1) that some Moodle export pipelines introduce into special characters like `π` and `·`.
 - **Interactive Plotly charts**: every chart (box plots, heatmaps, scatter plots, line/density charts) is rendered with Plotly for a consistent look throughout.
 - **Consistent, readable labels**: table headers and multiselect/filter options display as "Average Marks" / "Student ID" rather than the raw internal `average_marks` / `student_id` keys, everywhere the app surfaces them — on-screen and in the PDF.
-- **Organized sidebar**: Question Analysis and Quiz Analysis controls are grouped into their own sidebar sections, including a multiselect to choose which uploaded quizzes feed the Quiz Analysis aggregation.
+- **Organized sidebar**: Question Analysis and Quiz Analysis controls are grouped into their own sidebar sections, each with a "Select All" / "Deselect All" button pair, plus a multiselect to choose which uploaded quizzes feed the Quiz Analysis aggregation.
 - **Polished, theme-aware UI**: a monotone dark/light design system (switchable via System/Light/Dark in Streamlit's own "⋮" menu) with a widened sidebar, an always-visible collapse control, and a single unified scroll region.
 - **Colorblind-friendly mode**: a "Colorblind Mode" toggle next to the Question & Quiz Analysis page title swaps every chart — bar, box, scatter, and line charts plus the PRT pass-rate heatmap — to a red-green colorblind-safe palette (an Okabe-Ito-derived qualitative palette and a blue/yellow/vermillion scale in place of the default red/yellow/green).
 - **PDF export**: a single "Download PDF Report" button bundles the visible tables and a rasterized image of every visible chart into one PDF, with its own scope controls — include/exclude the Quiz Analysis summary or Question Analysis breakdown wholesale, or pick individual sections within each, plus which quiz(zes) get a full Question Analysis breakdown. Charts are rasterized in one batched pass rather than one browser launch per chart, so a report with a dozen charts renders in a few seconds instead of the better part of a minute.
+  - **Auto-generated Table of Contents**: a first page listing every section title with its actual page number (plus native PDF outline/bookmarks for quick navigation in most PDF viewers), automatically included once a report has more than a couple of sections.
+  - **Real math typesetting, not raw LaTeX**: STACK answer expressions and question/right-answer text are rasterized through Matplotlib's `mathtext` renderer directly into the PDF's tables, so fractions, radicals, superscripts, and Greek letters render as actual math instead of literal `$...$`/backslash-command text. Sizing is shared across each table column (based on that column's typical entry width, not its single longest outlier) so answers read at a consistent, legible size.
+  - **Multi-quiz breakdown ordering**: when several quizzes are selected for the Question Analysis breakdown, the PDF gives each quiz its own complete run of sections 1–6 (quiz A's summary through metrics, then quiz B's, and so on) before moving on to the combined Quiz Analysis sections — rather than interleaving section 1 for every quiz, then section 2 for every quiz.
 - **Data validation**: flags mismatches between calculated per-question scores and Moodle's own recorded grade, and other basic sanity checks, directly in the UI.
 
 ## Project Structure
@@ -38,6 +41,7 @@ Special thanks to:
 Home.py                              # Landing page: overview, nav button, walkthrough video, acknowledgements
 streamlit_app.py                     # Thin entry point (re-exports Home.py) for Streamlit Cloud
 .streamlit/config.toml               # Theme (colors, font, radius) — Streamlit only auto-discovers config here
+packages.txt                         # apt packages for Streamlit Community Cloud (chromium, for chart export — see below)
 pages/
   Question_and_Quiz_Analysis.py      # The single unified analysis page
 analytics/                           # Parsing, metrics, PDF export, and other shared logic
@@ -50,11 +54,15 @@ tests/                               # Pytest suite for the analytics/parsing pi
 
 - **Streamlit**: web framework for the interactive dashboard.
 - **Pandas**: data loading, cleaning, and aggregation.
-- **Plotly** (+ **Kaleido**): interactive charts on-screen and their rasterized PNG versions embedded in PDF exports. Kaleido 1.x pays a multi-second headless-Chrome startup cost per rasterization call, so the PDF export batches every chart in the report through a single `plotly.io.write_images` call instead of rasterizing one at a time.
+- **Plotly** (+ **Kaleido**): interactive charts on-screen and their rasterized PNG versions embedded in PDF exports. Kaleido 1.x renders via a real headless Chrome (rather than a bundled one) and pays a multi-second startup cost per rasterization call, so the PDF export batches every chart in the report through a single `plotly.io.write_images` call instead of rasterizing one at a time. It also self-heals if no system Chrome is found (e.g. downloading a private copy via `kaleido.get_chrome_sync()`) and retries once — see the deployment note below.
 - **SciPy**: gaussian KDE for the engagement/density chart.
-- **Matplotlib**: date-axis utilities only (no chart rendering).
-- **ReportLab**: PDF report generation.
+- **Matplotlib**: date-axis utilities, and (via its `mathtext` renderer) rasterizing STACK LaTeX/Maxima math expressions directly into the PDF's tables so they typeset as real math instead of literal `$...$` text — no chart rendering.
+- **ReportLab**: PDF report generation, including an auto-populated Table of Contents (`reportlab.platypus.tableofcontents`) built over two layout passes (`multiBuild`) so section page numbers resolve correctly.
 - **OpenPyXL / xlrd**: reading `.xlsx` and `.xls` files.
+
+### Deploying to Streamlit Community Cloud
+
+Chart export (Kaleido) needs a Chrome/Chromium binary on the host. Streamlit Community Cloud's base container doesn't ship one, so this repo includes a `packages.txt` with `chromium` — Streamlit Cloud installs everything listed there via `apt-get` before your app starts, which gives Kaleido both a real browser and the OS-level shared libraries (`libnss3`, `libgbm1`, etc.) it needs to run headlessly. If you fork this repo and charts silently stop appearing in the PDF export on your own Cloud deployment, check that `packages.txt` made it into your fork and that the deployment actually redeployed after it was added.
 
 ## Usage
 

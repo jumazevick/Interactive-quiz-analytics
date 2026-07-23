@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -15,6 +17,52 @@ _COLORBLIND_ACCENT = "#D55E00"
 _DEFAULT_ACCENT = "#FF474C"
 
 ATTEMPT_FRAME_COLUMNS = ["quiz_name", "student_name", "student_id", "attempt_idx", "overall_grade", "completed_dt", "started_on"]
+
+
+_LABEL_TOKEN_RE = re.compile(r"[^\s_-]+[\s_-]*")
+
+
+def _wrap_category_label(label: str, max_chars: int = 22, max_lines: int = 2) -> str:
+    """Wrap a long quiz name onto up to `max_lines` short horizontal lines (joined
+    with `<br>`) instead of leaving Plotly to render it as one long diagonal tick
+    label that eats most of the chart's vertical space. Anything left over past
+    `max_lines` is elided with an ellipsis — the full name is still available on
+    hover, this only affects the printed tick label.
+
+    Tokenizes on underscores and hyphens as well as whitespace: these STACK quiz
+    names are commonly one single space-free token like
+    `mat1_numeri_complessi-Espressioni`, all sharing the same `mat1_numeri_complessi-`
+    prefix — wrapping on whitespace alone would treat the whole name as one
+    unbreakable word and truncate it down to just that shared, non-distinguishing
+    prefix, hiding the one part (`Espressioni`) that actually differs between quizzes.
+    """
+    tokens = _LABEL_TOKEN_RE.findall(str(label))
+    if not tokens:
+        return str(label)
+    lines: list[str] = []
+    current = ""
+    remaining = list(tokens)
+    while remaining and len(lines) < max_lines:
+        token = remaining[0]
+        if not current and len(token) > max_chars:
+            lines.append(token[: max_chars - 1].rstrip() + "…")
+            remaining.pop(0)
+            continue
+        candidate = current + token
+        if len(candidate) > max_chars and current:
+            lines.append(current.rstrip())
+            current = ""
+            continue
+        current = candidate
+        remaining.pop(0)
+    if current and len(lines) < max_lines:
+        lines.append(current.rstrip())
+    if remaining and not (lines and lines[-1].endswith("…")):
+        if lines:
+            lines[-1] = lines[-1].rstrip() + "…"
+        else:
+            lines = [current[:max_chars].rstrip() + "…"]
+    return "<br>".join(lines)
 
 
 def build_quiz_attempt_frame(response_df: pd.DataFrame) -> pd.DataFrame:
@@ -191,7 +239,13 @@ def build_metric_trend_data(attempt_frame: pd.DataFrame, selected_metrics: list[
 
 
 def build_line_graph_figure(trend_data: pd.DataFrame, colorblind_mode: bool = False) -> go.Figure:
+    # Unlike the boxplot (color="quiz_name"), this chart colors by Metric, so the
+    # quiz-name x-axis labels are the only way to tell which quiz a point belongs to
+    # — hiding them outright (as for the boxplot) isn't an option. Wrapping them onto
+    # a couple of short horizontal lines instead of one long diagonal string keeps
+    # them readable without the label eating most of the chart's vertical space.
     melted = trend_data.melt("quiz_name", var_name="Metric", value_name="Value")
+    melted["quiz_name"] = melted["quiz_name"].map(_wrap_category_label)
     fig = px.line(
         melted,
         x="quiz_name",
@@ -201,11 +255,12 @@ def build_line_graph_figure(trend_data: pd.DataFrame, colorblind_mode: bool = Fa
         color_discrete_sequence=qualitative_colors(colorblind_mode, px.colors.qualitative.Set1),
         labels={"quiz_name": "Quiz", "Value": "Value"},
     )
-    fig.update_xaxes(type="category")
-    fig.update_layout(title="Line Graph of Various Metrics")
-    # Same issue as the boxplot: full quiz names as x tick labels force a diagonal
-    # layout that squeezes the plot into a tiny strip. Hidden from display (still on
-    # hover) — the trend shape across quizzes stays visible even without a label per
-    # point.
-    fig.update_xaxes(showticklabels=False, title=None)
+    fig.update_xaxes(type="category", tickangle=0, tickfont=dict(size=10))
+    # Give each category more horizontal room as quiz count grows, so wrapped labels
+    # (which share a long common prefix, e.g. "mat1_numeri_complessi-") don't crowd
+    # into their neighbors — Streamlit's use_container_width on-screen ignores this
+    # in favor of the container's actual width, but the PDF export (a fixed-size
+    # rasterization) respects it directly.
+    n_categories = max(trend_data["quiz_name"].nunique(), 1)
+    fig.update_layout(title="Line Graph of Various Metrics", width=max(800, 220 * n_categories))
     return fig

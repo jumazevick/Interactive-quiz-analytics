@@ -74,8 +74,11 @@ def _prepare_plotly_export(figure: Any) -> tuple[Any, int, int] | None:
         cloned = figure.__class__(figure)
         cloned.update_layout(
             template="plotly",
-            margin=dict(l=50, r=50, t=50, b=80),
-            legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+            # Bottom margin is generous enough for a 2-line wrapped x-axis category
+            # label (e.g. the line graph's wrapped quiz names) plus the axis title
+            # and the horizontal legend below it, without any of the three overlapping.
+            margin=dict(l=50, r=50, t=50, b=110),
+            legend=dict(orientation="h", yanchor="bottom", y=-0.4, xanchor="center", x=0.5),
         )
         # Respect a figure's own explicit size (e.g. the student-performance heatmap
         # scales its height to the student count) instead of overriding it.
@@ -274,14 +277,28 @@ def _split_math_fragments(text: str) -> list[str]:
     return fragments
 
 
+def _percentile(sorted_values: list[float], pct: float) -> float:
+    if not sorted_values:
+        return 0.0
+    idx = int(round(pct * (len(sorted_values) - 1)))
+    return sorted_values[idx]
+
+
 def _build_math_table_rows(text_grid: list[list[str]], style: ParagraphStyle, col_widths: list[float]) -> list[list[Any]]:
     """Build reportlab table cell content for a whole df at once (rather than cell by
-    cell), so that every math fragment in a given column shares ONE shrink-to-fit
-    factor — the factor the column's single widest fragment needs. Scaling each
-    fragment to fit independently (the original approach) made an `ans1: $-1/8$` cell
-    look bigger than an `ans1: $9 \\cdot \\sin(...)$` cell right next to it, and even
-    made `ans1`/`ans2` within the *same* cell inconsistent, since a longer expression
-    needed more shrinking than a shorter one on the very next line.
+    cell), so that every math fragment in a given column shares one baseline
+    shrink-to-fit factor instead of being scaled independently — the original
+    per-cell approach made an `ans1: $-1/8$` cell look bigger than an
+    `ans1: $9 \\cdot \\sin(...)$` cell right next to it, and even made `ans1`/`ans2`
+    within the *same* cell inconsistent.
+
+    The baseline is sized to the column's 90th-percentile fragment width, not its
+    single widest one: basing it on the max meant one long outlier (e.g. a trig
+    identity a few rows down) shrank every other, much shorter answer in the same
+    column too. A fragment that still doesn't fit at the shared baseline (i.e. it's
+    in that top decile) gets an extra, individual shrink on top — so the common case
+    renders as large as the column comfortably allows, and only genuine outliers
+    end up smaller.
 
     Cells with no `$...$` math pass through as a single Paragraph, unchanged from
     before. A fragment that fails to rasterize (e.g. an unsupported construct) falls
@@ -291,10 +308,10 @@ def _build_math_table_rows(text_grid: list[list[str]], style: ParagraphStyle, co
     col_count = len(col_widths)
 
     # Pass 1: rasterize every math fragment once (cached across repeats — the same
-    # right-answer string recurs across many student rows) and track, per column,
-    # the widest natural (unshrunk) rendered width.
+    # right-answer string recurs across many student rows) and collect, per column,
+    # every fragment's natural (unshrunk) rendered width.
     cell_items: list[list[list[tuple[str, Any]]]] = []
-    col_max_natural_width = [0.0] * col_count
+    col_natural_widths: list[list[float]] = [[] for _ in range(col_count)]
     for row in text_grid:
         row_items = []
         for col_idx, val in enumerate(row):
@@ -313,29 +330,37 @@ def _build_math_table_rows(text_grid: list[list[str]], style: ParagraphStyle, co
                 reader = ImageReader(io.BytesIO(png_bytes))
                 img_w, img_h = reader.getSize()
                 draw_w, draw_h = img_w * _MATH_PT_PER_PX, img_h * _MATH_PT_PER_PX
-                col_max_natural_width[col_idx] = max(col_max_natural_width[col_idx], draw_w)
+                col_natural_widths[col_idx].append(draw_w)
                 items.append(("math", (png_bytes, draw_w, draw_h)))
             row_items.append(items or [("text", "")])
         cell_items.append(row_items)
 
-    col_shrink = [
-        (col_widths[c] / col_max_natural_width[c]) if col_max_natural_width[c] > col_widths[c] else 1.0
-        for c in range(col_count)
-    ]
+    col_baseline_shrink = []
+    for c in range(col_count):
+        widths = sorted(col_natural_widths[c])
+        baseline_width = _percentile(widths, 0.9)
+        col_baseline_shrink.append(col_widths[c] / baseline_width if baseline_width > col_widths[c] else 1.0)
 
-    # Pass 2: build the final flowables using each column's shared shrink factor.
+    # Pass 2: build the final flowables. Each fragment gets its column's shared
+    # baseline shrink, plus an extra individual shrink only if it still overflows
+    # the column at that baseline (the top decile of outliers).
     table_rows: list[list[Any]] = []
     for row_items in cell_items:
         row_cells = []
         for col_idx, items in enumerate(row_items):
-            shrink = col_shrink[col_idx]
+            baseline_shrink = col_baseline_shrink[col_idx]
+            max_width = col_widths[col_idx]
             flowables: list[Any] = []
             for kind, payload in items:
                 if kind == "text":
                     flowables.append(Paragraph(payload, style))
                 else:
                     png_bytes, draw_w, draw_h = payload
-                    flowables.append(Image(io.BytesIO(png_bytes), width=draw_w * shrink, height=draw_h * shrink))
+                    draw_w, draw_h = draw_w * baseline_shrink, draw_h * baseline_shrink
+                    if draw_w > max_width:
+                        extra_shrink = max_width / draw_w
+                        draw_w, draw_h = draw_w * extra_shrink, draw_h * extra_shrink
+                    flowables.append(Image(io.BytesIO(png_bytes), width=draw_w, height=draw_h))
             row_cells.append(flowables)
         table_rows.append(row_cells)
     return table_rows
