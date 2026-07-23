@@ -1,7 +1,31 @@
 from __future__ import annotations
 
 import pandas as pd
+import plotly.express as px
 import streamlit as st
+
+# Okabe-Ito colorblind-safe qualitative palette (px.colors.qualitative.Safe), used in
+# place of Set1/Set2/Vivid/Bold for every categorical chart when colorblind mode is on.
+COLORBLIND_QUALITATIVE_PALETTE = px.colors.qualitative.Safe
+
+# Replaces the red/yellow/green pass-rate heatmap scale — red vs. green is the one
+# combination red-green colorblind users can't reliably tell apart, which is exactly
+# what that scale uses to encode pass/fail. Blue/yellow/vermillion (Okabe-Ito) reads
+# clearly for both red-green (deuteranopia/protanopia) and typical vision.
+COLORBLIND_PASS_FAIL_SCALE = ["#0072B2", "#F0E442", "#D55E00"]
+DEFAULT_PASS_FAIL_SCALE = ["#ef4444", "#fde68a", "#22c55e"]
+
+
+def qualitative_colors(colorblind_mode: bool, default: list[str]) -> list[str]:
+    """Categorical chart palette: `default` normally, or the colorblind-safe Safe
+    palette when colorblind_mode is on."""
+    return COLORBLIND_QUALITATIVE_PALETTE if colorblind_mode else default
+
+
+def pass_fail_scale(colorblind_mode: bool) -> list[str]:
+    """Diverging red/yellow/green pass-rate scale, or its colorblind-safe equivalent."""
+    return COLORBLIND_PASS_FAIL_SCALE if colorblind_mode else DEFAULT_PASS_FAIL_SCALE
+
 
 _GLOBAL_CSS = """
 <style>

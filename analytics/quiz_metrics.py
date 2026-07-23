@@ -7,6 +7,13 @@ import plotly.graph_objects as go
 from matplotlib.dates import date2num, num2date
 from scipy.stats import gaussian_kde
 
+from analytics.ui_theme import qualitative_colors
+
+# Okabe-Ito vermillion — a colorblind-safer stand-in for the default reddish mean-grade
+# overlay line/marker color.
+_COLORBLIND_ACCENT = "#D55E00"
+_DEFAULT_ACCENT = "#FF474C"
+
 ATTEMPT_FRAME_COLUMNS = ["quiz_name", "student_name", "student_id", "attempt_idx", "overall_grade", "completed_dt", "started_on"]
 
 
@@ -69,7 +76,7 @@ def compute_quiz_stats(attempt_frame: pd.DataFrame, selected_stats: list[str]) -
     return pd.DataFrame()
 
 
-def build_boxplot_figure(attempt_frame: pd.DataFrame) -> go.Figure:
+def build_boxplot_figure(attempt_frame: pd.DataFrame, colorblind_mode: bool = False) -> go.Figure:
     """Grade distribution per quiz, with an overlaid mean_grade line — same construction
     as the original Quiz Analysis boxplot, keyed by quiz_name.
 
@@ -84,31 +91,32 @@ def build_boxplot_figure(attempt_frame: pd.DataFrame) -> go.Figure:
         y="overall_grade",
         points="all",
         color="quiz_name",
-        color_discrete_sequence=px.colors.qualitative.Bold,
+        color_discrete_sequence=qualitative_colors(colorblind_mode, px.colors.qualitative.Bold),
         labels={"quiz_name": "Quiz", "overall_grade": "Grade"},
     )
     fig.update_traces(marker=dict(size=4, opacity=0.6), jitter=0.3)
 
+    accent = _COLORBLIND_ACCENT if colorblind_mode else _DEFAULT_ACCENT
     means = attempt_frame.groupby("quiz_name")["overall_grade"].mean().reset_index()
     fig.add_trace(go.Scatter(
         x=means["quiz_name"],
         y=means["overall_grade"],
         mode="lines+markers",
         name="mean_grade",
-        line=dict(color="#FF474C", width=2),
-        marker=dict(size=8, color="#FF474C"),
+        line=dict(color=accent, width=2),
+        marker=dict(size=8, color=accent),
     ))
     fig.update_layout(title="Grade Distribution")
     return fig
 
 
-def build_engagement_figure(attempt_frame: pd.DataFrame) -> go.Figure | None:
+def build_engagement_figure(attempt_frame: pd.DataFrame, colorblind_mode: bool = False) -> go.Figure | None:
     """Per-quiz gaussian KDE (Scott's rule bandwidth) of attempt start dates — same
     method seaborn.kdeplot uses internally. Returns None if there's nothing plottable."""
     if attempt_frame.empty or attempt_frame["started_on"].isna().any():
         return None
 
-    fig = go.Figure()
+    fig = go.Figure(layout=dict(colorway=qualitative_colors(colorblind_mode, px.colors.qualitative.Plotly)))
     for quiz_name in attempt_frame["quiz_name"].unique():
         quiz_data = attempt_frame[attempt_frame["quiz_name"] == quiz_name]
         if quiz_data.empty:
@@ -129,7 +137,7 @@ def build_engagement_figure(attempt_frame: pd.DataFrame) -> go.Figure | None:
     return fig
 
 
-def build_scatter_figure(attempt_frame: pd.DataFrame, grade_type: str) -> tuple[go.Figure, float, str, str] | None:
+def build_scatter_figure(attempt_frame: pd.DataFrame, grade_type: str, colorblind_mode: bool = False) -> tuple[go.Figure, float, str, str] | None:
     """Attempts-vs-grade scatter, keyed by quiz_name. Returns (figure, correlation, y_label, title)."""
     if attempt_frame.empty:
         return None
@@ -154,7 +162,7 @@ def build_scatter_figure(attempt_frame: pd.DataFrame, grade_type: str) -> tuple[
         x="attempt_count",
         y="overall_grade",
         color=merged_data["quiz_name"].astype(str),
-        color_discrete_sequence=px.colors.qualitative.Set2,
+        color_discrete_sequence=qualitative_colors(colorblind_mode, px.colors.qualitative.Set2),
         labels={"attempt_count": "No. of Attempts", "overall_grade": y_label, "color": "Quiz"},
     )
     fig.update_traces(marker=dict(size=14, line=dict(width=1, color="white")))
@@ -176,7 +184,7 @@ def build_metric_trend_data(attempt_frame: pd.DataFrame, selected_metrics: list[
     return pd.DataFrame(data).reset_index()
 
 
-def build_line_graph_figure(trend_data: pd.DataFrame) -> go.Figure:
+def build_line_graph_figure(trend_data: pd.DataFrame, colorblind_mode: bool = False) -> go.Figure:
     melted = trend_data.melt("quiz_name", var_name="Metric", value_name="Value")
     fig = px.line(
         melted,
@@ -184,7 +192,7 @@ def build_line_graph_figure(trend_data: pd.DataFrame) -> go.Figure:
         y="Value",
         color="Metric",
         markers=True,
-        color_discrete_sequence=px.colors.qualitative.Set1,
+        color_discrete_sequence=qualitative_colors(colorblind_mode, px.colors.qualitative.Set1),
         labels={"quiz_name": "Quiz", "Value": "Value"},
     )
     fig.update_xaxes(type="category")

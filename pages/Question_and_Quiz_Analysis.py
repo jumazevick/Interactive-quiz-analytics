@@ -33,7 +33,7 @@ from analytics.quiz_metrics import (
 from analytics.response_analysis import compute_repeated_wrong_answers, compute_response_outcomes
 from analytics.summary import build_export_summary
 from analytics.syntax_analysis import compute_syntax_analysis
-from analytics.ui_theme import humanize_column_name, humanize_columns, inject_global_styles
+from analytics.ui_theme import humanize_column_name, humanize_columns, inject_global_styles, pass_fail_scale, qualitative_colors
 from analytics.upload_cache import CACHE_HASH_FUNCS, clear_uploaded_files, get_uploader_key, sync_uploaded_files
 from analytics.validation import audit_question_data
 
@@ -83,7 +83,19 @@ st.set_page_config(
 )
 inject_global_styles()
 
-st.title("Question & Quiz Analysis")
+# Streamlit's own "⋮" menu (Deploy / theme / rerun, top-right) isn't extensible with
+# custom entries, so the closest available "top-right corner" is a right-aligned
+# toggle next to the page title.
+title_col, colorblind_col = st.columns([5, 2])
+with title_col:
+    st.title("Question & Quiz Analysis")
+with colorblind_col:
+    st.markdown("<div style='margin-top: 1.6rem;'></div>", unsafe_allow_html=True)
+    colorblind_mode = st.toggle(
+        "🎨 Colorblind Mode",
+        key="colorblind_mode",
+        help="Switches every chart (bars, box plots, scatter, line graphs, and the PRT pass-rate heatmap) to a red-green colorblind-safe palette.",
+    )
 st.warning("⏳ Depending on the size of your upload, it may take up to 30 seconds for all statistics to fully render, and up to 30 seconds for the downloadable PDF report to generate.")
 
 # Sidebar overflow fix: with 13 section checkboxes plus a quiz selector, the sidebar
@@ -381,7 +393,7 @@ if uploaded_files:
                         x="question",
                         y="avg_score",
                         color="question",
-                        color_discrete_sequence=px.colors.qualitative.Set2,
+                        color_discrete_sequence=qualitative_colors(colorblind_mode, px.colors.qualitative.Set2),
                         labels={"avg_score": "Average score", "question": "Question"},
                     )
                     fig.update_layout(title="Top Difficult Questions by Average Score", showlegend=False, template="plotly")
@@ -395,7 +407,7 @@ if uploaded_files:
                         x="question",
                         y="scaled_score",
                         color="question",
-                        color_discrete_sequence=px.colors.qualitative.Set2,
+                        color_discrete_sequence=qualitative_colors(colorblind_mode, px.colors.qualitative.Set2),
                         labels={"scaled_score": "Score (0-10)", "question": "Question"},
                     )
                     fig2.update_layout(title="Score Distribution by Question (Best Attempt per Student)", showlegend=False, template="plotly")
@@ -467,7 +479,7 @@ if uploaded_files:
                             x="question",
                             y=["correct_percent", "incorrect_percent"],
                             barmode="group",
-                            color_discrete_sequence=px.colors.qualitative.Vivid,
+                            color_discrete_sequence=qualitative_colors(colorblind_mode, px.colors.qualitative.Vivid),
                             labels={"value": "Percent", "question": "Question"},
                         )
                         fig.update_layout(title="Response Outcome Percentages (Best Attempts)", template="plotly")
@@ -479,7 +491,7 @@ if uploaded_files:
                             x="question",
                             y=["Valid %", "Invalid/Syntax Error %"],
                             barmode="group",
-                            color_discrete_sequence=px.colors.qualitative.Vivid,
+                            color_discrete_sequence=qualitative_colors(colorblind_mode, px.colors.qualitative.Vivid),
                             labels={"value": "Percent", "question": "Question"},
                         )
                         fig2.update_layout(title="Valid vs Invalid Attempts (All Attempts)", template="plotly")
@@ -516,7 +528,7 @@ if uploaded_files:
                         fig3 = px.imshow(
                             heatmap_df,
                             labels=dict(x="PRT", y="Question", color="Pass %"),
-                            color_continuous_scale=["#ef4444", "#fde68a", "#22c55e"],
+                            color_continuous_scale=pass_fail_scale(colorblind_mode),
                         )
                         # Explicit tick labels so Plotly can't thin out categorical ticks it deems crowded.
                         fig3.update_xaxes(tickmode="array", tickvals=list(range(len(heatmap_df.columns))), ticktext=[str(c) for c in heatmap_df.columns])
@@ -607,7 +619,7 @@ if uploaded_files:
                 st.subheader("10. Quiz Grade Distribution (Box Plot)")
                 st.caption("Spread of grades per quiz, with mean grade overlay, combined across all uploaded files.")
                 if not attempt_frame.empty:
-                    fig = build_boxplot_figure(attempt_frame)
+                    fig = build_boxplot_figure(attempt_frame, colorblind_mode=colorblind_mode)
                     fig.update_layout(template="plotly")
                     st.plotly_chart(fig, use_container_width=True, key="quiz_boxplot")
                     quiz_boxplot_fig = fig
@@ -619,7 +631,7 @@ if uploaded_files:
                 st.subheader("11. Engagement Over Time")
                 st.caption("Density of quiz attempt start times per quiz, combined across all uploaded files.")
                 if not attempt_frame.empty:
-                    fig = build_engagement_figure(attempt_frame)
+                    fig = build_engagement_figure(attempt_frame, colorblind_mode=colorblind_mode)
                     if fig is not None:
                         fig.update_layout(template="plotly")
                         st.plotly_chart(fig, use_container_width=True, key="quiz_engagement")
@@ -634,7 +646,7 @@ if uploaded_files:
                 st.subheader("12. Scatter Plot: Attempts vs Grades")
                 st.caption("Correlation between number of attempts and grade outcome, combined across all uploaded files.")
                 if not attempt_frame.empty:
-                    result = build_scatter_figure(attempt_frame, quiz_grade_type)
+                    result = build_scatter_figure(attempt_frame, quiz_grade_type, colorblind_mode=colorblind_mode)
                     if result is not None:
                         fig, correlation, y_label, _ = result
                         fig.update_layout(template="plotly")
@@ -651,7 +663,7 @@ if uploaded_files:
                 if not attempt_frame.empty:
                     if selected_quiz_metrics:
                         trend_data = build_metric_trend_data(attempt_frame, selected_quiz_metrics)
-                        fig = build_line_graph_figure(trend_data)
+                        fig = build_line_graph_figure(trend_data, colorblind_mode=colorblind_mode)
                         fig.update_layout(template="plotly")
                         st.plotly_chart(fig, use_container_width=True, key="quiz_linegraph")
                         quiz_linegraph_fig = fig
@@ -690,7 +702,7 @@ if uploaded_files:
             difficulty_charts = []
             fig = px.bar(
                 q_ranked_difficulty.head(10), x="question", y="avg_score", color="question",
-                color_discrete_sequence=px.colors.qualitative.Set2,
+                color_discrete_sequence=qualitative_colors(colorblind_mode, px.colors.qualitative.Set2),
                 labels={"avg_score": "Average score", "question": "Question"},
             )
             fig.update_layout(title="Top Difficult Questions by Average Score", showlegend=False, template="plotly")
@@ -698,7 +710,7 @@ if uploaded_files:
 
             fig2 = px.box(
                 q_pool_b, x="question", y="scaled_score", color="question",
-                color_discrete_sequence=px.colors.qualitative.Set2,
+                color_discrete_sequence=qualitative_colors(colorblind_mode, px.colors.qualitative.Set2),
                 labels={"scaled_score": "Score (0-10)", "question": "Question"},
             )
             fig2.update_layout(title="Score Distribution by Question (Best Attempt per Student)", showlegend=False, template="plotly")
