@@ -5,6 +5,17 @@ import streamlit as st
 
 _GLOBAL_CSS = """
 <style>
+/* Sidebar — wider default so longer checkbox/button labels (e.g. "5. Student
+   Performance by Question", "Clear / Reset All Uploaded Files") fit on one line
+   instead of wrapping. Users can still drag-resize it narrower/wider afterward.
+   Scoped to aria-expanded="true": Streamlit collapses the sidebar by animating its
+   inline `width` down to a small value, and CSS min-width always wins over a smaller
+   inline width — so an unscoped min-width here would stop the sidebar from ever
+   fully collapsing (it'd get stuck open by the difference, arrow and all). */
+section[data-testid="stSidebar"][aria-expanded="true"] {
+    min-width: 370px !important;
+}
+
 /* Buttons — consistent rounded, subtle-lift styling across st.button /
    st.download_button / st.link_button, all of which have stable, documented testids. */
 div[data-testid="stButton"] button,
@@ -28,12 +39,41 @@ div[data-testid="stMetricValue"] {
 
 /* Headings — slightly tighter tracking reads a touch more modern. */
 h1, h2, h3 {
-    letter-spacing: -0.01em;
+    letter-spacing: -0.015em;
+    font-weight: 700;
 }
 
 /* Dividers — softer than the browser default, matches the muted footer text. */
 hr {
     border-color: rgba(128, 128, 128, 0.25);
+}
+
+/* Sidebar page nav — subtle rounded hover state instead of the flat default rows,
+   matching the rounded, bordered look used for buttons/containers elsewhere. */
+div[data-testid="stSidebarNav"] a {
+    border-radius: 8px;
+    transition: background-color 0.15s ease;
+}
+div[data-testid="stSidebarNav"] a:hover {
+    background-color: rgba(128, 128, 128, 0.12);
+}
+
+/* Checkboxes — a touch more breathing room between stacked toggles in the sidebar,
+   and a subtle hover cue; the checked-state color itself comes from the active
+   theme's primaryColor (see .streamlit/config.toml) rather than being hardcoded here. */
+div[data-testid="stCheckbox"] {
+    padding: 0.1rem 0;
+}
+div[data-testid="stCheckbox"] label:hover {
+    opacity: 0.85;
+}
+/* The visual box+checkmark is the label's other direct-child div (its sibling is the
+   text container, stWidgetLabel — a documented testid we anchor on instead of any
+   internal class name). Scaling it up ~15% makes it easier to spot/click without
+   changing the label font size or row height around it. */
+div[data-testid="stCheckbox"] label > div:not([data-testid="stWidgetLabel"]) {
+    transform: scale(1.15);
+    transform-origin: center;
 }
 </style>
 """
@@ -42,8 +82,11 @@ hr {
 def inject_global_styles() -> None:
     """Shared, presentation-only CSS polish applied on every page. Deliberately limited
     to plain HTML tags and Streamlit's officially documented component testids (stButton,
-    stDownloadButton, stLinkButton, stMetricValue) rather than internal emotion-cache
-    classes, which are undocumented and can silently break on a Streamlit version bump.
+    stDownloadButton, stLinkButton, stMetricValue, stSidebarNav, stCheckbox) rather than
+    internal emotion-cache classes, which are undocumented and can silently break on a
+    Streamlit version bump. Color choices themselves live in .streamlit/config.toml so
+    both the dark and light theme variants (toggled from the app's built-in menu) stay
+    in sync automatically.
     """
     st.markdown(_GLOBAL_CSS, unsafe_allow_html=True)
 

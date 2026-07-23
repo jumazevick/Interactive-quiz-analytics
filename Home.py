@@ -29,17 +29,18 @@ def render_youtube_video(url: str) -> None:
         st.warning("⚠️ The video couldn't be embedded here.")
         st.markdown(f"[Watch it directly on YouTube]({url})")
 
-# Custom premium gradient header banner
+# Header banner — monotone dark card (matches the dark theme in .streamlit/config.toml)
+# with a single neutral accent badge, rather than a colored brand gradient.
 st.markdown(
     """
-    <div style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 2.5rem; border-radius: 12px; color: white; margin-bottom: 2rem;">
-        <span style="background-color: rgba(255, 255, 255, 0.2); color: white; padding: 4px 12px; border-radius: 16px; font-size: 0.8rem; font-weight: bold; text-transform: uppercase; display: inline-block; margin-bottom: 10px;">
+    <div style="background: linear-gradient(180deg, #18181b 0%, #0f0f11 100%); border: 1px solid rgba(255, 255, 255, 0.08); padding: 2.5rem; border-radius: 12px; color: #f4f4f5; margin-bottom: 2rem;">
+        <span style="background-color: rgba(255, 255, 255, 0.1); color: #e4e4e7; padding: 4px 12px; border-radius: 16px; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; display: inline-block; margin-bottom: 10px;">
             Interactive STACK Data
         </span>
-        <h1 style="color: white; margin: 0 0 10px 0; font-size: 2.5rem; font-weight: 800; border-bottom: none;">
+        <h1 style="color: #f4f4f5; margin: 0 0 10px 0; font-size: 2.5rem; font-weight: 800; border-bottom: none;">
             Moodle/STACK Interactive Quiz Analytics
         </h1>
-        <p style="margin: 0; font-size: 1.1rem; opacity: 0.9; line-height: 1.5;">
+        <p style="margin: 0; font-size: 1.1rem; color: #a1a1aa; line-height: 1.5;">
             Analyze overall grade distributions, calculate correlation metrics, and drill down into specific student responses and potential response trees (PRTs) for STACK questions.
         </p>
     </div>
@@ -47,23 +48,24 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Page Navigation link — styled as a prominent call-to-action button
+# Page Navigation link — styled as a prominent, high-contrast call-to-action button
+# (light neutral fill against the dark banner, echoing the badge/text greys above).
 st.markdown(
     """
     <style>
     [data-testid="stPageLink"] {
-        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        background: #f4f4f5;
         border-radius: 10px;
         padding: 0.5rem 0.5rem;
-        box-shadow: 0 2px 8px rgba(30, 60, 114, 0.35);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
         transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
     [data-testid="stPageLink"]:hover {
         transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(30, 60, 114, 0.45);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
     }
     [data-testid="stPageLink"] p {
-        color: white !important;
+        color: #0a0a0b !important;
         font-size: 1.15rem !important;
         font-weight: 700 !important;
     }

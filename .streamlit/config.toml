@@ -1,0 +1,26 @@
+[theme]
+# Monotone design system: grayscale surfaces with a single neutral accent. Streamlit
+# only reads flat keys directly under [theme] for the active theme (nested
+# [theme.dark]/[theme.light] tables are NOT merged in automatically), so everything
+# has to live here rather than split across variant tables.
+base = "dark"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+baseRadius = "0.75rem"
+buttonRadius = "0.6rem"
+showWidgetBorder = true
+showSidebarBorder = true
+
+primaryColor = "#52525b"
+backgroundColor = "#0a0a0b"
+secondaryBackgroundColor = "#151517"
+textColor = "#e4e4e7"
+borderColor = "#27272a"
+linkColor = "#d4d4d8"
+
+[theme.sidebar]
+backgroundColor = "#111113"
+secondaryBackgroundColor = "#1a1a1d"
+borderColor = "#27272a"
+
+[client]
+toolbarMode = "auto"
