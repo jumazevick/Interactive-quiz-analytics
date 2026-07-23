@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import io
+import os
+import tempfile
 from typing import Any
 import pandas as pd
+import plotly.io as pio
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -12,8 +15,93 @@ from reportlab.pdfgen import canvas
 from reportlab.platypus import Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
+def _prepare_plotly_export(figure: Any) -> tuple[Any, int, int] | None:
+    """Clone + re-style a Plotly figure for export (real template, legend, margins) —
+    st.plotly_chart(...) themes figures on-screen via Streamlit's frontend at render
+    time, which never happens when rasterizing server-side here, so a clone with an
+    explicit template avoids silently losing color. Also forces a horizontal,
+    below-plot legend and generous margins: a default right-side legend (esp. with
+    many series, e.g. one per quiz) eats enough horizontal width at export time to
+    squeeze the actual plot into a narrow, overlapping-label strip.
+
+    Returns (prepared_figure, width, height), or None if `figure` isn't a Plotly
+    figure at all (e.g. a Matplotlib figure or raw bytes, handled elsewhere).
+    """
+    if not hasattr(figure, "to_image"):
+        return None
+    export_width, export_height = 800, 400
+    try:
+        cloned = figure.__class__(figure)
+        cloned.update_layout(
+            template="plotly",
+            margin=dict(l=50, r=50, t=50, b=80),
+            legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+        )
+        # Respect a figure's own explicit size (e.g. the student-performance heatmap
+        # scales its height to the student count) instead of overriding it.
+        if cloned.layout.width:
+            export_width = cloned.layout.width
+        if cloned.layout.height:
+            export_height = cloned.layout.height
+        return cloned, export_width, export_height
+    except Exception:
+        return figure, export_width, export_height
+
+
+def _batch_rasterize_plotly_charts(sections: list[dict[str, Any]]) -> dict[int, bytes]:
+    """Rasterize every Plotly figure across every section in ONE kaleido call instead
+    of one call per chart.
+
+    kaleido 1.x launches a fresh headless Chrome instance for each `fig.to_image()` /
+    `write_image()` call (~4s of pure browser-startup overhead every time, confirmed
+    by profiling — it does not get faster on repeat calls), which is what made PDF
+    generation with several charts take tens of seconds. `plotly.io.write_images`
+    (kaleido >= 1.0) amortizes that one Chrome startup across an entire batch: 10
+    charts rasterize in ~4s total instead of ~40s. It writes to real file paths (an
+    in-memory BytesIO target silently produces empty output), hence the temp dir.
+
+    Returns {id(original_figure): png_bytes} for every figure that rasterized
+    successfully; figures that fail or aren't Plotly figures are simply absent from
+    the result, and the per-chart fallback path in generate_pdf_report handles them.
+    """
+    jobs: list[tuple[int, Any, int, int]] = []
+    for sec in sections:
+        for chart in (sec.get("charts") or []):
+            chart_source = chart.get("figure", chart.get("image")) if isinstance(chart, dict) else chart
+            prepared = _prepare_plotly_export(chart_source)
+            if prepared is not None:
+                fig, w, h = prepared
+                jobs.append((id(chart_source), fig, w, h))
+
+    if not jobs:
+        return {}
+
+    results: dict[int, bytes] = {}
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = [os.path.join(tmpdir, f"chart_{i}.png") for i in range(len(jobs))]
+            pio.write_images(
+                fig=[job[1] for job in jobs],
+                file=paths,
+                format="png",
+                width=[job[2] for job in jobs],
+                height=[job[3] for job in jobs],
+                scale=2,
+            )
+            for (original_id, _, _, _), path in zip(jobs, paths):
+                with open(path, "rb") as f:
+                    data = f.read()
+                if data:
+                    results[original_id] = data
+    except Exception:
+        pass  # Leave results empty; _figure_to_png_bytes below re-tries per chart.
+    return results
+
+
 def _figure_to_png_bytes(figure: Any) -> bytes | None:
-    """Rasterize a Plotly figure, a Matplotlib figure, or raw PNG bytes into PNG bytes.
+    """Rasterize a single Plotly figure, a Matplotlib figure, or raw PNG bytes into PNG
+    bytes. Used as the fallback for charts the batch pass in
+    _batch_rasterize_plotly_charts didn't produce output for.
 
     Returns None (instead of raising) if rasterization fails — e.g. the optional
     kaleido package isn't installed — so a broken chart export can't take down the
@@ -24,34 +112,10 @@ def _figure_to_png_bytes(figure: Any) -> bytes | None:
     if isinstance(figure, (bytes, bytearray)):
         return bytes(figure)
     try:
-        if hasattr(figure, "to_image"):  # Plotly Figure
-            # st.plotly_chart(...) themes charts on-screen via Streamlit's frontend at
-            # render time; that color injection never happens when the same figure is
-            # rasterized server-side here. Force a real (non-neutral) template on a
-            # clone before exporting so PDF charts never silently lose their color,
-            # regardless of what template the figure happened to pick up on-screen.
-            # Also force a horizontal, below-plot legend and generous margins: a default
-            # right-side legend (esp. with many series, e.g. one per quiz) eats enough
-            # horizontal width at export time to squeeze the actual plot into a narrow,
-            # overlapping-label strip.
-            export_width, export_height = 800, 400
-            try:
-                cloned = figure.__class__(figure)
-                cloned.update_layout(
-                    template="plotly",
-                    margin=dict(l=50, r=50, t=50, b=80),
-                    legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
-                )
-                # Respect a figure's own explicit size (e.g. the student-performance
-                # heatmap scales its height to the student count) instead of overriding it.
-                if cloned.layout.width:
-                    export_width = cloned.layout.width
-                if cloned.layout.height:
-                    export_height = cloned.layout.height
-                figure = cloned
-            except Exception:
-                pass
-            return figure.to_image(format="png", width=export_width, height=export_height, scale=2)
+        prepared = _prepare_plotly_export(figure)
+        if prepared is not None:
+            fig, w, h = prepared
+            return fig.to_image(format="png", width=w, height=h, scale=2)
         if hasattr(figure, "savefig"):  # Matplotlib Figure
             buf = io.BytesIO()
             figure.savefig(buf, format="png", dpi=150, bbox_inches="tight")
@@ -206,6 +270,8 @@ def generate_pdf_report(
 
     usable_width = letter[0] - 108  # 504 pt
 
+    chart_png_cache = _batch_rasterize_plotly_charts(sections)
+
     for sec in sections:
         sec_title = sec.get("title", "")
         sec_caption = sec.get("caption", "")
@@ -264,7 +330,7 @@ def generate_pdf_report(
                 chart_title = None
                 chart_source = chart
 
-            png_bytes = _figure_to_png_bytes(chart_source)
+            png_bytes = chart_png_cache.get(id(chart_source)) or _figure_to_png_bytes(chart_source)
             if not png_bytes:
                 if chart_title:
                     story.append(Paragraph(f"{chart_title} — chart image unavailable (kaleido not installed).", note_style))

@@ -730,12 +730,49 @@ if uploaded_files:
             return sections
 
         # PDF Report Options — scoped to PDF generation only; the on-screen sections
-        # above are unaffected by these controls.
+        # above are unaffected by these controls. Only sections currently enabled
+        # on-screen (via the sidebar checkboxes) are offered here, since their
+        # underlying tables/charts are only computed when that toggle is on.
+        question_section_options = [
+            (show_summary, "1. Question Summary"),
+            (show_difficulty, "2. Question Difficulty Analysis"),
+            (show_item_details, "3. Question Item Details & Error Drill-Down"),
+            (show_response, "4. Question Response Distribution"),
+            (show_student, "5. Student Performance Matrix"),
+            (show_metrics, "6. Question Metrics"),
+        ]
+        available_question_sections = [label for enabled, label in question_section_options if enabled]
+
+        quiz_section_options = [
+            (show_quiz_merged, "8. Merged List of Users and Files"),
+            (show_quiz_summary, "9. Summary of Quiz Stats"),
+            (show_quiz_boxplot, "10. Quiz Grade Distribution (Box Plot)"),
+            (show_quiz_engagement, "11. Engagement Over Time"),
+            (show_quiz_scatter, "12. Scatter Plot: Attempts vs Grades"),
+            (show_quiz_linegraph, "13. Line Graph of Various Metrics"),
+        ]
+        available_quiz_sections = [label for enabled, label in quiz_section_options if enabled]
+
         st.markdown("<br>", unsafe_allow_html=True)
         with st.container(border=True):
             st.markdown("### 📄 PDF Report Options")
             pdf_include_quiz_summary = st.checkbox("Include Quiz Analysis Summary", value=True)
+            pdf_selected_quiz_sections = available_quiz_sections
+            if pdf_include_quiz_summary and available_quiz_sections:
+                pdf_selected_quiz_sections = st.multiselect(
+                    "Select which Quiz Analysis sections to include",
+                    options=available_quiz_sections,
+                    default=available_quiz_sections,
+                )
+
             pdf_include_question_breakdown = st.checkbox("Include Question Analysis Breakdown", value=True)
+            pdf_selected_question_sections = available_question_sections
+            if pdf_include_question_breakdown and available_question_sections:
+                pdf_selected_question_sections = st.multiselect(
+                    "Select which Question Analysis sections to include",
+                    options=available_question_sections,
+                    default=available_question_sections,
+                )
 
             pdf_selected_quizzes = [selected_quiz_name]
             if pdf_include_question_breakdown and len(quiz_names) > 1:
@@ -750,18 +787,18 @@ if uploaded_files:
         # plus the PDF-only scope controls above.
         pdf_sections = []
         if pdf_include_question_breakdown:
-            if show_summary:
+            if show_summary and "1. Question Summary" in pdf_selected_question_sections:
                 pdf_sections.append({"title": "1. Question Summary", "caption": f"Participation and summary statistics ({selected_quiz_name})", "df": humanize_columns(question_metrics[["question", "attempts", "students", "percent_valid", "percent_invalid", "syntax_error_count"]])})
-            if show_difficulty:
+            if show_difficulty and "2. Question Difficulty Analysis" in pdf_selected_question_sections:
                 pdf_sections.append({"title": "2. Question Difficulty Analysis", "caption": "Facility and discrimination (Best Attempt)", "df": humanize_columns(difficulty_metrics), "charts": difficulty_section_charts})
-            if show_item_details:
+            if show_item_details and "3. Question Item Details & Error Drill-Down" in pdf_selected_question_sections:
                 pdf_sections.append({"title": "3. Question Item Details & Error Drill-Down", "caption": "Question text, right answer, and wrong-response drill-down (Best Attempt)", "df": humanize_columns(item_details_pdf_table)})
-            if show_response:
+            if show_response and "4. Question Response Distribution" in pdf_selected_question_sections:
                 repeated_wrong_answers_pdf = repeated_wrong_answers.drop(columns=["top_wrong_expressions"], errors="ignore")
                 pdf_sections.append({"title": "4. Question Response Distribution", "caption": "Response outcomes and top wrong answers", "df": humanize_columns(response_outcomes.merge(repeated_wrong_answers_pdf, on="question", how="left")), "charts": response_section_charts})
-            if show_student:
+            if show_student and "5. Student Performance Matrix" in pdf_selected_question_sections:
                 pdf_sections.append({"title": "5. Student Performance Matrix", "caption": "Per-student score per question (Best Attempt)", "df": humanize_columns(student_matrix.reset_index()), "charts": student_section_charts})
-            if show_metrics:
+            if show_metrics and "6. Question Metrics" in pdf_selected_question_sections:
                 pdf_sections.append({"title": "6. Question Metrics", "caption": "Consolidated question analytics table", "df": humanize_columns(metrics_export)})
 
             for extra_quiz in pdf_selected_quizzes:
@@ -770,17 +807,17 @@ if uploaded_files:
                 pdf_sections.extend(_build_question_pdf_sections(extra_quiz))
 
         if pdf_include_quiz_summary:
-            if show_quiz_merged and quiz_merged_table is not None:
+            if show_quiz_merged and quiz_merged_table is not None and "8. Merged List of Users and Files" in pdf_selected_quiz_sections:
                 pdf_sections.append({"title": "8. Merged List of Users and Files", "caption": "All parsed quiz attempt rows (combined across uploaded files)", "df": quiz_merged_table})
-            if show_quiz_summary and quiz_summary_table is not None:
+            if show_quiz_summary and quiz_summary_table is not None and "9. Summary of Quiz Stats" in pdf_selected_quiz_sections:
                 pdf_sections.append({"title": "9. Summary of Quiz Stats", "caption": "Aggregated stats per quiz", "df": quiz_summary_table})
-            if show_quiz_boxplot and quiz_boxplot_fig is not None:
+            if show_quiz_boxplot and quiz_boxplot_fig is not None and "10. Quiz Grade Distribution (Box Plot)" in pdf_selected_quiz_sections:
                 pdf_sections.append({"title": "10. Quiz Grade Distribution (Box Plot)", "caption": "Spread of grades per quiz, with mean grade overlay", "charts": [{"title": "Grade Distribution", "figure": quiz_boxplot_fig}]})
-            if show_quiz_engagement and quiz_engagement_fig is not None:
+            if show_quiz_engagement and quiz_engagement_fig is not None and "11. Engagement Over Time" in pdf_selected_quiz_sections:
                 pdf_sections.append({"title": "11. Engagement Over Time", "caption": "Density of quiz attempt start times per quiz", "charts": [{"title": "Engagement Over Time", "figure": quiz_engagement_fig}]})
-            if show_quiz_scatter and quiz_scatter_fig is not None:
+            if show_quiz_scatter and quiz_scatter_fig is not None and "12. Scatter Plot: Attempts vs Grades" in pdf_selected_quiz_sections:
                 pdf_sections.append({"title": "12. Scatter Plot: Attempts vs Grades", "caption": "Correlation between number of attempts and grade outcome", "charts": [{"title": "Attempts vs Grades", "figure": quiz_scatter_fig}]})
-            if show_quiz_linegraph and quiz_linegraph_fig is not None:
+            if show_quiz_linegraph and quiz_linegraph_fig is not None and "13. Line Graph of Various Metrics" in pdf_selected_quiz_sections:
                 pdf_sections.append({"title": "13. Line Graph of Various Metrics", "caption": "Trend of selected metrics across quizzes", "charts": [{"title": "Metrics by Quiz", "figure": quiz_linegraph_fig}]})
 
         pdf_bytes = generate_pdf_report(

@@ -91,9 +91,10 @@ with st.container(border=True):
     st.write("This was originally developed as a Hackathon project.")
     st.markdown(
         """
-        Special thanks to:
-        - **Ernest** for the question analysis research, technical setup and development, and implementation.
-        - **Sage** for the technical setup.
+        Special Thanks and Credit to:
+        - **Juma** for the original hackathon idea and implementation, quiz and question analysis research, and advising.
+        - **Ernest** for the question analysis research, technical setup and development, UI improvements, and implementation.
+        - **Sage Foundation** for the technical setup.
         - **Otis** for the question analysis research.
         """
     )
