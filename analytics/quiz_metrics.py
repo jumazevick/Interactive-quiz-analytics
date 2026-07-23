@@ -107,6 +107,12 @@ def build_boxplot_figure(attempt_frame: pd.DataFrame, colorblind_mode: bool = Fa
         marker=dict(size=8, color=accent),
     ))
     fig.update_layout(title="Grade Distribution")
+    # Full quiz names as x-axis tick labels force Plotly to render them diagonally,
+    # which can eat most of the chart's vertical space and squeeze the actual plot
+    # into a tiny strip — the per-quiz legend (color="quiz_name" above) already
+    # identifies each box, so the tick labels are redundant; hidden from display but
+    # still available on hover.
+    fig.update_xaxes(showticklabels=False, title=None)
     return fig
 
 
@@ -197,4 +203,9 @@ def build_line_graph_figure(trend_data: pd.DataFrame, colorblind_mode: bool = Fa
     )
     fig.update_xaxes(type="category")
     fig.update_layout(title="Line Graph of Various Metrics")
+    # Same issue as the boxplot: full quiz names as x tick labels force a diagonal
+    # layout that squeezes the plot into a tiny strip. Hidden from display (still on
+    # hover) — the trend shape across quizzes stays visible even without a label per
+    # point.
+    fig.update_xaxes(showticklabels=False, title=None)
     return fig

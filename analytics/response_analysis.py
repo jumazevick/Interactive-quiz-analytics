@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 import re
 import pandas as pd
+from analytics.latex_utils import maxima_expr_to_latex
 from analytics.parser import get_attempt_pools
 
 
@@ -77,7 +78,7 @@ def compute_repeated_wrong_answers(response_df: pd.DataFrame) -> pd.DataFrame:
 
         if expr_counts:
             top_wrong = expr_counts.most_common(5)
-            formatted_list = [f"{expr} ({cnt})" for expr, cnt in top_wrong]
+            formatted_list = [f"${maxima_expr_to_latex(expr)}$ ({cnt})" for expr, cnt in top_wrong]
             most_common_str = ", ".join(formatted_list)
             top_freq = top_wrong[0][1]
         else:

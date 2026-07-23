@@ -142,6 +142,16 @@ def inject_global_styles() -> None:
 
 _ACRONYM_WORDS = {"id", "prt"}
 
+# Internal column names whose abbreviations don't expand into a readable label via
+# the generic word-by-word logic below (e.g. `completed_dt` -> "Completed Dt",
+# `attempt_idx` -> "Attempt Idx") get an explicit display-only override instead of
+# renaming the underlying column everywhere it's used internally (parser, quiz_metrics,
+# validation, tests all key off the raw names).
+_COLUMN_NAME_OVERRIDES = {
+    "completed_dt": "Completed On",
+    "attempt_idx": "Attempt Number",
+}
+
 
 def humanize_column_name(name: str) -> str:
     """snake_case metric name -> Title Case column header (e.g. `average_marks` ->
@@ -149,13 +159,20 @@ def humanize_column_name(name: str) -> str:
     already human-readable (e.g. `Student Name` passes through unchanged), so it's
     safe to apply to a DataFrame whose columns are a mix of raw metric keys and
     already-labeled columns."""
+    override = _COLUMN_NAME_OVERRIDES.get(str(name).lower())
+    if override:
+        return override
     words = str(name).replace("_", " ").split()
     return " ".join(w.upper() if w.lower() in _ACRONYM_WORDS else w.capitalize() for w in words)
 
 
 def humanize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Return a copy of `df` with every column renamed via `humanize_column_name`, so
-    tables read consistently (e.g. "Average Marks" instead of "average_marks") whether
-    they're shown with st.dataframe or embedded in the PDF export — both consume the
-    DataFrame's columns directly as headers."""
-    return df.rename(columns={col: humanize_column_name(col) for col in df.columns})
+    """Return a copy of `df` with every column (and, if present, a named index) renamed
+    via `humanize_column_name`, so tables read consistently (e.g. "Average Marks"
+    instead of "average_marks") whether they're shown with st.dataframe or embedded in
+    the PDF export — both consume the DataFrame's columns directly as headers, and
+    st.dataframe additionally shows a named index's name as its header."""
+    renamed = df.rename(columns={col: humanize_column_name(col) for col in df.columns})
+    if renamed.index.name:
+        renamed = renamed.rename_axis(humanize_column_name(renamed.index.name))
+    return renamed

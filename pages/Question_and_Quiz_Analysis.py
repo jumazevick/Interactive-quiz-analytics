@@ -217,13 +217,31 @@ if quiz_names:
         selected_quiz_name = st.sidebar.selectbox("Select Quiz", quiz_names, index=0)
     else:
         selected_quiz_name = quiz_names[0]
-show_summary = st.sidebar.checkbox("1. Question Summary", value=True)
-show_difficulty = st.sidebar.checkbox("2. Question Difficulty Analysis", value=True)
-show_item_details = st.sidebar.checkbox("3. Question Item Details & Error Drill-Down", value=True)
-show_response = st.sidebar.checkbox("4. Question Response Distribution", value=True)
-show_student = st.sidebar.checkbox("5. Student Performance by Question", value=True)
-show_metrics = st.sidebar.checkbox("6. Question Metrics", value=True)
-show_notes = st.sidebar.checkbox("7. Interpretation Notes", value=True)
+
+_QUESTION_SECTION_KEYS = [
+    "show_summary", "show_difficulty", "show_item_details",
+    "show_response", "show_student", "show_metrics", "show_notes",
+]
+qa_select_col, qa_deselect_col = st.sidebar.columns(2)
+# Setting session_state here, before the checkboxes below are instantiated in this
+# same script run, is what makes the new value take effect immediately — a checkbox's
+# `value=` argument is only its default the very first time a key is seen, so once a
+# key exists in session_state (from either a prior user click or this button), the
+# checkbox reads its state from there instead.
+if qa_select_col.button("Select All", key="qa_select_all", use_container_width=True):
+    for _key in _QUESTION_SECTION_KEYS:
+        st.session_state[_key] = True
+if qa_deselect_col.button("Deselect All", key="qa_deselect_all", use_container_width=True):
+    for _key in _QUESTION_SECTION_KEYS:
+        st.session_state[_key] = False
+
+show_summary = st.sidebar.checkbox("1. Question Summary", value=True, key="show_summary")
+show_difficulty = st.sidebar.checkbox("2. Question Difficulty Analysis", value=True, key="show_difficulty")
+show_item_details = st.sidebar.checkbox("3. Question Item Details & Error Drill-Down", value=True, key="show_item_details")
+show_response = st.sidebar.checkbox("4. Question Response Distribution", value=True, key="show_response")
+show_student = st.sidebar.checkbox("5. Student Performance by Question", value=True, key="show_student")
+show_metrics = st.sidebar.checkbox("6. Question Metrics", value=True, key="show_metrics")
+show_notes = st.sidebar.checkbox("7. Interpretation Notes", value=True, key="show_notes")
 
 # --- Sidebar: Quiz Analysis section — each sub-widget lives right under the
 # checkbox/section it configures, instead of being scattered wherever its section
@@ -238,8 +256,20 @@ if quiz_names:
         options=quiz_names,
         default=quiz_names,
     )
-show_quiz_merged = st.sidebar.checkbox("8. Merged List of Users and Files")
-show_quiz_summary = st.sidebar.checkbox("9. Summary of Quiz Stats")
+_QUIZ_SECTION_KEYS = [
+    "show_quiz_merged", "show_quiz_summary", "show_quiz_boxplot",
+    "show_quiz_engagement", "show_quiz_scatter", "show_quiz_linegraph",
+]
+quiz_select_col, quiz_deselect_col = st.sidebar.columns(2)
+if quiz_select_col.button("Select All", key="quiz_select_all", use_container_width=True):
+    for _key in _QUIZ_SECTION_KEYS:
+        st.session_state[_key] = True
+if quiz_deselect_col.button("Deselect All", key="quiz_deselect_all", use_container_width=True):
+    for _key in _QUIZ_SECTION_KEYS:
+        st.session_state[_key] = False
+
+show_quiz_merged = st.sidebar.checkbox("8. Merged List of Users and Files", key="show_quiz_merged")
+show_quiz_summary = st.sidebar.checkbox("9. Summary of Quiz Stats", key="show_quiz_summary")
 selected_quiz_stats: list[str] = []
 if show_quiz_summary:
     selected_quiz_stats = st.sidebar.multiselect(
@@ -248,13 +278,13 @@ if show_quiz_summary:
         default=["student_count", "attempt_rate", "mean_grade", "grade_variance", "mean_highest_grade", "attempt_count"],
         format_func=humanize_column_name,
     )
-show_quiz_boxplot = st.sidebar.checkbox("10. Quiz Grade Distribution (Box Plot)")
-show_quiz_engagement = st.sidebar.checkbox("11. Engagement Over Time")
-show_quiz_scatter = st.sidebar.checkbox("12. Scatter Plot: Attempts vs Grades")
+show_quiz_boxplot = st.sidebar.checkbox("10. Quiz Grade Distribution (Box Plot)", key="show_quiz_boxplot")
+show_quiz_engagement = st.sidebar.checkbox("11. Engagement Over Time", key="show_quiz_engagement")
+show_quiz_scatter = st.sidebar.checkbox("12. Scatter Plot: Attempts vs Grades", key="show_quiz_scatter")
 quiz_grade_type = "Average Grade"
 if show_quiz_scatter:
     quiz_grade_type = st.sidebar.radio("Select Grade Type", ("Highest Grade", "Average Grade", "Minimum Grade"))
-show_quiz_linegraph = st.sidebar.checkbox("13. Line Graph of Various Metrics")
+show_quiz_linegraph = st.sidebar.checkbox("13. Line Graph of Various Metrics", key="show_quiz_linegraph")
 selected_quiz_metrics: list[str] = []
 if show_quiz_linegraph:
     selected_quiz_metrics = st.sidebar.multiselect(
@@ -376,7 +406,6 @@ if uploaded_files:
                 )
 
         # 2. Question Difficulty Analysis Section
-        difficulty_section_charts = []
         if show_difficulty:
             with st.container(border=True):
                 st.subheader("2. Question Difficulty Analysis")
@@ -398,7 +427,6 @@ if uploaded_files:
                     )
                     fig.update_layout(title="Top Difficult Questions by Average Score", showlegend=False, template="plotly")
                     st.plotly_chart(fig, use_container_width=True, key="difficulty_bar")
-                    difficulty_section_charts.append({"title": "Top Difficult Questions by Average Score", "figure": fig})
                 with col2:
                     # Proper boxplot fed with Pool B per-student scores (same array as the
                     # Question Metrics table's average_marks/median_marks/standard_deviation).
@@ -412,10 +440,8 @@ if uploaded_files:
                     )
                     fig2.update_layout(title="Score Distribution by Question (Best Attempt per Student)", showlegend=False, template="plotly")
                     st.plotly_chart(fig2, use_container_width=True, key="difficulty_box")
-                    difficulty_section_charts.append({"title": "Score Distribution by Question (Best Attempt per Student)", "figure": fig2})
 
         # 3. Question Item Details & Error Drill-Down Section
-        item_details_rows = []
         if show_item_details:
             with st.container(border=True):
                 st.subheader("3. Question Item Details & Error Drill-Down")
@@ -446,13 +472,6 @@ if uploaded_files:
                                 submitted = extract_stack_answer_latex(row["Submitted Response"])
                                 right_answer = extract_stack_answer_latex(row["Right Answer"])
                                 st.markdown(f"**{row['Student Name']}** — Submitted: {submitted}  \nRight Answer: {right_answer}")
-                            flat = drilldown.copy()
-                            flat.insert(0, "Question", q)
-                            flat["Submitted Response"] = flat["Submitted Response"].apply(extract_stack_answer_latex)
-                            flat["Right Answer"] = flat["Right Answer"].apply(extract_stack_answer_latex)
-                            item_details_rows.append(flat)
-
-        item_details_pdf_table = pd.concat(item_details_rows, ignore_index=True) if item_details_rows else pd.DataFrame()
 
         has_prt_data = bool(any(str(row.get("response_text", "")).strip() for _, row in selected_df.iterrows()))
         valid_invalid = pd.DataFrame({
@@ -462,7 +481,6 @@ if uploaded_files:
         })
 
         # 4. Question Response Distribution Section
-        response_section_charts = []
         if show_response:
             with st.container(border=True):
                 st.subheader("4. Question Response Distribution")
@@ -484,7 +502,6 @@ if uploaded_files:
                         )
                         fig.update_layout(title="Response Outcome Percentages (Best Attempts)", template="plotly")
                         st.plotly_chart(fig, use_container_width=True, key="response_outcomes_bar")
-                        response_section_charts.append({"title": "Response Outcome Percentages (Best Attempts)", "figure": fig})
                     with col2:
                         fig2 = px.bar(
                             valid_invalid,
@@ -496,7 +513,6 @@ if uploaded_files:
                         )
                         fig2.update_layout(title="Valid vs Invalid Attempts (All Attempts)", template="plotly")
                         st.plotly_chart(fig2, use_container_width=True, key="response_validity_bar")
-                        response_section_charts.append({"title": "Valid vs Invalid Attempts (All Attempts)", "figure": fig2})
 
                     st.write("**Most Common Incorrect Answers** (rendered as math where applicable):")
                     with st.container(border=True):
@@ -535,12 +551,10 @@ if uploaded_files:
                         fig3.update_yaxes(tickmode="array", tickvals=list(range(len(heatmap_df.index))), ticktext=[str(r) for r in heatmap_df.index])
                         fig3.update_layout(title="PRT Pass Heatmap", template="plotly")
                         st.plotly_chart(fig3, use_container_width=True, key="prt_heatmap")
-                        response_section_charts.append({"title": "PRT Pass Heatmap", "figure": fig3})
                     else:
                         st.info("No PRT pass data available for this quiz.")
 
         # 5. Student Performance by Question Section (renders all Q1..QN columns)
-        student_section_charts = []
         if show_student:
             with st.container(border=True):
                 st.subheader("5. Student Performance by Question")
@@ -556,7 +570,6 @@ if uploaded_files:
                 chart_height = max(400, 24 * len(student_matrix.index))
                 fig.update_layout(title="Student-by-Question Performance Matrix (Best Attempts)", height=chart_height, template="plotly")
                 st.plotly_chart(fig, use_container_width=True, key="student_matrix_heatmap")
-                student_section_charts.append({"title": "Student-by-Question Performance Matrix", "figure": fig})
 
         # 6. Question Metrics Section
         if show_metrics:
@@ -670,10 +683,12 @@ if uploaded_files:
                 else:
                     st.info("No quiz attempt data available yet.")
 
-        def _build_question_pdf_sections(quiz_name: str) -> list[dict]:
-            """Core Question Analysis PDF sections (summary, difficulty w/ charts, response
-            distribution, student matrix) for any uploaded quiz — lets the PDF include a
-            breakdown for quizzes other than the one currently shown on-screen."""
+        def _build_question_pdf_sections(quiz_name: str, selected_sections: list[str]) -> list[dict]:
+            """All 6 Question Analysis PDF sections (summary, difficulty w/ charts, item
+            details/error drill-down, response distribution, student matrix, metrics) for
+            any uploaded quiz, gated by `selected_sections` — used for every quiz in the
+            PDF's breakdown (including the one currently shown on-screen) so each quiz
+            gets an identical, complete 1-6 section run before the next quiz starts."""
             quiz_df = response_df[response_df["quiz_name"] == quiz_name].copy()
             if quiz_df.empty:
                 return []
@@ -691,53 +706,93 @@ if uploaded_files:
 
             q_pool_b["scaled_score"] = q_pool_b["grade"] * 10.0
             q_order = sorted(q_pool_b["question"].unique(), key=_q_num)
-            prefix = f"[{quiz_name}] "
+            prefix = f"{quiz_name} — "
 
-            sections = [{
-                "title": f"{prefix}Question Summary",
-                "caption": "Participation and summary statistics",
-                "df": humanize_columns(q_metrics[["question", "attempts", "students", "percent_valid", "percent_invalid", "syntax_error_count"]]),
-            }]
+            sections: list[dict] = []
 
-            difficulty_charts = []
-            fig = px.bar(
-                q_ranked_difficulty.head(10), x="question", y="avg_score", color="question",
-                color_discrete_sequence=qualitative_colors(colorblind_mode, px.colors.qualitative.Set2),
-                labels={"avg_score": "Average score", "question": "Question"},
-            )
-            fig.update_layout(title="Top Difficult Questions by Average Score", showlegend=False, template="plotly")
-            difficulty_charts.append({"title": "Top Difficult Questions by Average Score", "figure": fig})
+            if "1. Question Summary" in selected_sections:
+                sections.append({
+                    "title": f"{prefix}1. Question Summary",
+                    "caption": "Participation and summary statistics",
+                    "df": humanize_columns(q_metrics[["question", "attempts", "students", "percent_valid", "percent_invalid", "syntax_error_count"]]),
+                })
 
-            fig2 = px.box(
-                q_pool_b, x="question", y="scaled_score", color="question",
-                color_discrete_sequence=qualitative_colors(colorblind_mode, px.colors.qualitative.Set2),
-                labels={"scaled_score": "Score (0-10)", "question": "Question"},
-            )
-            fig2.update_layout(title="Score Distribution by Question (Best Attempt per Student)", showlegend=False, template="plotly")
-            difficulty_charts.append({"title": "Score Distribution by Question (Best Attempt per Student)", "figure": fig2})
+            if "2. Question Difficulty Analysis" in selected_sections:
+                difficulty_charts = []
+                fig = px.bar(
+                    q_ranked_difficulty.head(10), x="question", y="avg_score", color="question",
+                    color_discrete_sequence=qualitative_colors(colorblind_mode, px.colors.qualitative.Set2),
+                    labels={"avg_score": "Average score", "question": "Question"},
+                )
+                fig.update_layout(title="Top Difficult Questions by Average Score", showlegend=False, template="plotly")
+                difficulty_charts.append({"title": "Top Difficult Questions by Average Score", "figure": fig})
 
-            sections.append({
-                "title": f"{prefix}Question Difficulty Analysis",
-                "caption": "Facility and discrimination (Best Attempt)",
-                "df": humanize_columns(q_difficulty),
-                "charts": difficulty_charts,
-            })
+                fig2 = px.box(
+                    q_pool_b, x="question", y="scaled_score", color="question",
+                    color_discrete_sequence=qualitative_colors(colorblind_mode, px.colors.qualitative.Set2),
+                    labels={"scaled_score": "Score (0-10)", "question": "Question"},
+                )
+                fig2.update_layout(title="Score Distribution by Question (Best Attempt per Student)", showlegend=False, template="plotly")
+                difficulty_charts.append({"title": "Score Distribution by Question (Best Attempt per Student)", "figure": fig2})
 
-            sections.append({
-                "title": f"{prefix}Question Response Distribution",
-                "caption": "Response outcomes and top wrong answers",
-                "df": humanize_columns(q_response_outcomes.merge(q_repeated_wrong.drop(columns=["top_wrong_expressions"], errors="ignore"), on="question", how="left")),
-            })
+                sections.append({
+                    "title": f"{prefix}2. Question Difficulty Analysis",
+                    "caption": "Facility and discrimination (Best Attempt)",
+                    "df": humanize_columns(q_difficulty),
+                    "charts": difficulty_charts,
+                })
 
-            student_matrix_q = q_pool_b.pivot_table(
-                index="student_id", columns="question", values="grade",
-                aggfunc="first", fill_value=0.0, dropna=False,
-            ).reindex(columns=q_order, fill_value=0.0)
-            sections.append({
-                "title": f"{prefix}Student Performance Matrix",
-                "caption": "Per-student score per question (Best Attempt)",
-                "df": humanize_columns(student_matrix_q.reset_index()),
-            })
+            if "3. Question Item Details & Error Drill-Down" in selected_sections:
+                item_details_rows = []
+                for q in q_order:
+                    drilldown = build_error_drilldown(q_pool_b, q)
+                    if not drilldown.empty:
+                        flat = drilldown.copy()
+                        flat.insert(0, "Question", q)
+                        flat["Submitted Response"] = flat["Submitted Response"].apply(extract_stack_answer_latex)
+                        flat["Right Answer"] = flat["Right Answer"].apply(extract_stack_answer_latex)
+                        item_details_rows.append(flat)
+                item_details_table = pd.concat(item_details_rows, ignore_index=True) if item_details_rows else pd.DataFrame()
+                sections.append({
+                    "title": f"{prefix}3. Question Item Details & Error Drill-Down",
+                    "caption": "Question text, right answer, and wrong-response drill-down (Best Attempt)",
+                    "df": humanize_columns(item_details_table),
+                })
+
+            if "4. Question Response Distribution" in selected_sections:
+                sections.append({
+                    "title": f"{prefix}4. Question Response Distribution",
+                    "caption": "Response outcomes and top wrong answers",
+                    "df": humanize_columns(q_response_outcomes.merge(q_repeated_wrong.drop(columns=["top_wrong_expressions"], errors="ignore"), on="question", how="left")),
+                })
+
+            if "5. Student Performance Matrix" in selected_sections:
+                student_matrix_q = q_pool_b.pivot_table(
+                    index="student_id", columns="question", values="grade",
+                    aggfunc="first", fill_value=0.0, dropna=False,
+                ).reindex(columns=q_order, fill_value=0.0)
+                sections.append({
+                    "title": f"{prefix}5. Student Performance Matrix",
+                    "caption": "Per-student score per question (Best Attempt)",
+                    "df": humanize_columns(student_matrix_q.reset_index()),
+                })
+
+            if "6. Question Metrics" in selected_sections:
+                q_metrics_flat = q_metrics.merge(
+                    q_difficulty[["question", "discrimination_index", "average_marks", "median_marks", "standard_deviation"]],
+                    on="question", how="left",
+                )
+                q_metrics_export = q_metrics_flat[[
+                    "question", "attempts", "students", "invalid_rate", "blank_rate",
+                    "reattempt_share", "facility", "partial_credit_mean",
+                    "discrimination_index", "average_marks", "median_marks", "standard_deviation",
+                    "catch_all_share",
+                ]].rename(columns={"discrimination_index": "discrimination"})
+                sections.append({
+                    "title": f"{prefix}6. Question Metrics",
+                    "caption": "Consolidated question analytics table",
+                    "df": humanize_columns(q_metrics_export),
+                })
 
             return sections
 
@@ -796,27 +851,15 @@ if uploaded_files:
 
         # Single combined PDF Report Export Button (tables + rendered chart images, same
         # order as on-screen), gated by the same sidebar checkboxes as what's visible,
-        # plus the PDF-only scope controls above.
+        # plus the PDF-only scope controls above. Every selected quiz gets its own full
+        # 1-6 section run (via _build_question_pdf_sections, in upload order) before the
+        # next quiz starts, so e.g. 5 quizzes selected produces quiz1[1-6], quiz2[1-6],
+        # ..., quiz5[1-6] — not all of section 1 across quizzes, then all of section 2, etc.
         pdf_sections = []
         if pdf_include_question_breakdown:
-            if show_summary and "1. Question Summary" in pdf_selected_question_sections:
-                pdf_sections.append({"title": "1. Question Summary", "caption": f"Participation and summary statistics ({selected_quiz_name})", "df": humanize_columns(question_metrics[["question", "attempts", "students", "percent_valid", "percent_invalid", "syntax_error_count"]])})
-            if show_difficulty and "2. Question Difficulty Analysis" in pdf_selected_question_sections:
-                pdf_sections.append({"title": "2. Question Difficulty Analysis", "caption": "Facility and discrimination (Best Attempt)", "df": humanize_columns(difficulty_metrics), "charts": difficulty_section_charts})
-            if show_item_details and "3. Question Item Details & Error Drill-Down" in pdf_selected_question_sections:
-                pdf_sections.append({"title": "3. Question Item Details & Error Drill-Down", "caption": "Question text, right answer, and wrong-response drill-down (Best Attempt)", "df": humanize_columns(item_details_pdf_table)})
-            if show_response and "4. Question Response Distribution" in pdf_selected_question_sections:
-                repeated_wrong_answers_pdf = repeated_wrong_answers.drop(columns=["top_wrong_expressions"], errors="ignore")
-                pdf_sections.append({"title": "4. Question Response Distribution", "caption": "Response outcomes and top wrong answers", "df": humanize_columns(response_outcomes.merge(repeated_wrong_answers_pdf, on="question", how="left")), "charts": response_section_charts})
-            if show_student and "5. Student Performance Matrix" in pdf_selected_question_sections:
-                pdf_sections.append({"title": "5. Student Performance Matrix", "caption": "Per-student score per question (Best Attempt)", "df": humanize_columns(student_matrix.reset_index()), "charts": student_section_charts})
-            if show_metrics and "6. Question Metrics" in pdf_selected_question_sections:
-                pdf_sections.append({"title": "6. Question Metrics", "caption": "Consolidated question analytics table", "df": humanize_columns(metrics_export)})
-
-            for extra_quiz in pdf_selected_quizzes:
-                if extra_quiz == selected_quiz_name:
-                    continue
-                pdf_sections.extend(_build_question_pdf_sections(extra_quiz))
+            quizzes_to_render = [q for q in quiz_names if q in pdf_selected_quizzes] or [selected_quiz_name]
+            for quiz_name in quizzes_to_render:
+                pdf_sections.extend(_build_question_pdf_sections(quiz_name, pdf_selected_question_sections))
 
         if pdf_include_quiz_summary:
             if show_quiz_merged and quiz_merged_table is not None and "8. Merged List of Users and Files" in pdf_selected_quiz_sections:
