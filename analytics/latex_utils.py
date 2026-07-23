@@ -75,6 +75,35 @@ def _convert_sqrt(expr: str) -> str:
     return "".join(out)
 
 
+def _convert_pow_parens(expr: str) -> str:
+    """Balanced-paren replacement of Maxima `^(...)` with LaTeX `^{...}`.
+
+    LaTeX superscripts only the single token immediately after `^`, so a raw
+    `e^(pi*x)` renders as `e` to the power of just `(` — the rest of the exponent
+    (`pi*x)`) drops back to the baseline instead of being raised. Wrapping the
+    parenthesized exponent in braces (recursing for nested parens) fixes that."""
+    out = []
+    i = 0
+    while i < len(expr):
+        if expr[i] == "^" and expr[i + 1:i + 2] == "(":
+            depth = 1
+            j = i + 2
+            start = j
+            while j < len(expr) and depth > 0:
+                if expr[j] == "(":
+                    depth += 1
+                elif expr[j] == ")":
+                    depth -= 1
+                j += 1
+            inner = expr[start:j - 1]
+            out.append("^{" + _convert_pow_parens(inner) + "}")
+            i = j
+        else:
+            out.append(expr[i])
+            i += 1
+    return "".join(out)
+
+
 _FUNCTION_NAMES = ("sin", "cos", "tan", "asin", "acos", "atan", "log", "ln", "exp")
 
 
@@ -87,7 +116,15 @@ def maxima_expr_to_latex(expr: str) -> str:
     out = expr
     out = out.replace("%i", r"\mathrm{i}")
     out = out.replace("%pi", r"\pi")
+    out = out.replace("%e", r"\mathrm{e}")
+    out = out.replace("%phi", r"\varphi")
+    out = out.replace("%gamma", r"\gamma")
+    # Any remaining bare `%` (an unhandled Maxima constant/label like `%o1`) is a LaTeX
+    # comment marker to KaTeX and silently truncates everything after it when rendered
+    # unescaped — escape defensively instead of losing the rest of the expression.
+    out = out.replace("%", r"\%")
     out = _convert_sqrt(out)
+    out = _convert_pow_parens(out)
     # Bare "sin"/"cos"/etc. render in math mode as italicized variable products
     # (s*i*n) unless flagged as LaTeX operator names.
     for name in _FUNCTION_NAMES:

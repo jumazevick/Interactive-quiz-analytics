@@ -129,7 +129,7 @@ if st.sidebar.button("🗑️ Clear / Reset All Uploaded Files", use_container_w
     st.cache_data.clear()
     st.rerun()
 
-anonymize_data = st.sidebar.checkbox("🔒 Anonymize Student Data", value=False)
+anonymize_data = st.sidebar.checkbox("🔒 Anonymize Student Data", value=True)
 
 
 @st.cache_data(show_spinner=False, hash_funcs=CACHE_HASH_FUNCS)
