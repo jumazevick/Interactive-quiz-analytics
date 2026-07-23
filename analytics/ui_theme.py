@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
 
 _GLOBAL_CSS = """
@@ -45,3 +46,24 @@ def inject_global_styles() -> None:
     classes, which are undocumented and can silently break on a Streamlit version bump.
     """
     st.markdown(_GLOBAL_CSS, unsafe_allow_html=True)
+
+
+_ACRONYM_WORDS = {"id", "prt"}
+
+
+def humanize_column_name(name: str) -> str:
+    """snake_case metric name -> Title Case column header (e.g. `average_marks` ->
+    `Average Marks`, `student_id` -> `Student ID`). Idempotent on names that are
+    already human-readable (e.g. `Student Name` passes through unchanged), so it's
+    safe to apply to a DataFrame whose columns are a mix of raw metric keys and
+    already-labeled columns."""
+    words = str(name).replace("_", " ").split()
+    return " ".join(w.upper() if w.lower() in _ACRONYM_WORDS else w.capitalize() for w in words)
+
+
+def humanize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of `df` with every column renamed via `humanize_column_name`, so
+    tables read consistently (e.g. "Average Marks" instead of "average_marks") whether
+    they're shown with st.dataframe or embedded in the PDF export — both consume the
+    DataFrame's columns directly as headers."""
+    return df.rename(columns={col: humanize_column_name(col) for col in df.columns})

@@ -33,7 +33,7 @@ from analytics.quiz_metrics import (
 from analytics.response_analysis import compute_repeated_wrong_answers, compute_response_outcomes
 from analytics.summary import build_export_summary
 from analytics.syntax_analysis import compute_syntax_analysis
-from analytics.ui_theme import inject_global_styles
+from analytics.ui_theme import humanize_columns, inject_global_styles
 from analytics.upload_cache import CACHE_HASH_FUNCS, clear_uploaded_files, get_uploader_key, sync_uploaded_files
 from analytics.validation import audit_question_data
 
@@ -353,8 +353,10 @@ if uploaded_files:
                         st.metric(label, value)
 
                 st.dataframe(
-                    question_metrics[["question", "attempts", "students", "avg_score", "percent_valid", "percent_invalid", "syntax_error_count"]]
-                    .rename(columns={"avg_score": "average_score"}),
+                    humanize_columns(
+                        question_metrics[["question", "attempts", "students", "avg_score", "percent_valid", "percent_invalid", "syntax_error_count"]]
+                        .rename(columns={"avg_score": "average_score"})
+                    ),
                     use_container_width=True,
                     hide_index=True,
                 )
@@ -367,8 +369,8 @@ if uploaded_files:
                 st.caption("This section evaluates how difficult each question was and how effectively it separates stronger from weaker students (sourced from Best Attempt per Student).")
                 st.caption("⚠️ **Note on Discrimination (D)**: With small cohort sizes (around 30 students or fewer), the discrimination index is noisy and should be interpreted with caution.")
 
-                st.dataframe(ranked_difficulty.head(10), use_container_width=True, hide_index=True)
-                st.dataframe(difficulty_metrics, use_container_width=True, hide_index=True)
+                st.dataframe(humanize_columns(ranked_difficulty.head(10)), use_container_width=True, hide_index=True)
+                st.dataframe(humanize_columns(difficulty_metrics), use_container_width=True, hide_index=True)
 
                 col1, col2 = st.columns(2)
                 with col1:
@@ -453,8 +455,8 @@ if uploaded_files:
                 st.caption("This section analyses how students answered each question, including common incorrect responses and potential misconceptions.")
                 if not has_prt_data:
                     st.info("Upload a Responses file as well to see PRT/answer-note analysis for this quiz.")
-                    st.dataframe(response_outcomes, use_container_width=True, hide_index=True)
-                    st.dataframe(valid_invalid, use_container_width=True, hide_index=True)
+                    st.dataframe(humanize_columns(response_outcomes), use_container_width=True, hide_index=True)
+                    st.dataframe(humanize_columns(valid_invalid), use_container_width=True, hide_index=True)
                 else:
                     col1, col2 = st.columns(2)
                     with col1:
@@ -529,7 +531,7 @@ if uploaded_files:
             with st.container(border=True):
                 st.subheader("5. Student Performance by Question")
                 st.caption("This section compares student performance across questions to identify patterns of understanding (Best Attempt per Student).")
-                st.dataframe(student_matrix, use_container_width=True)
+                st.dataframe(humanize_columns(student_matrix), use_container_width=True)
                 fig = px.imshow(student_matrix, labels=dict(x="Question", y="Student", color="Score"), color_continuous_scale="Viridis")
                 # Explicit tick labels on both axes so every question column and every
                 # student row stays visible instead of Plotly thinning crowded ticks.
@@ -547,7 +549,7 @@ if uploaded_files:
             with st.container(border=True):
                 st.subheader("6. Question Metrics")
                 st.caption("This section provides a consolidated numerical summary of every question-level metric and serves as the primary exportable dataset.")
-                st.dataframe(metrics_export, use_container_width=True, hide_index=True)
+                st.dataframe(humanize_columns(metrics_export), use_container_width=True, hide_index=True)
                 st.caption("⚠️ **Note on Discrimination (D)**: With small cohort sizes (around 30 students or fewer), the discrimination index is noisy and should be interpreted with caution.")
 
         # 7. Interpretation Notes Section
@@ -584,8 +586,8 @@ if uploaded_files:
             with st.container(border=True):
                 st.subheader("8. Merged List of Users and Files")
                 st.caption("Combines every uploaded quiz file into one view. Each row is one attempt, with the student, quiz, and date.")
-                st.dataframe(attempt_frame, use_container_width=True, hide_index=True)
-                quiz_merged_table = attempt_frame
+                quiz_merged_table = humanize_columns(attempt_frame)
+                st.dataframe(quiz_merged_table, use_container_width=True, hide_index=True)
 
         if show_quiz_summary:
             with st.container(border=True):
@@ -593,8 +595,8 @@ if uploaded_files:
                 st.caption("Aggregated statistics per quiz, combined across all uploaded files.")
                 if not attempt_frame.empty:
                     quiz_stats_df = compute_quiz_stats(attempt_frame, selected_quiz_stats)
-                    st.dataframe(quiz_stats_df, use_container_width=True, hide_index=True)
-                    quiz_summary_table = quiz_stats_df
+                    quiz_summary_table = humanize_columns(quiz_stats_df)
+                    st.dataframe(quiz_summary_table, use_container_width=True, hide_index=True)
                 else:
                     st.info("No quiz attempt data available yet.")
 
@@ -680,7 +682,7 @@ if uploaded_files:
             sections = [{
                 "title": f"{prefix}Question Summary",
                 "caption": "Participation and summary statistics",
-                "df": q_metrics[["question", "attempts", "students", "percent_valid", "percent_invalid", "syntax_error_count"]],
+                "df": humanize_columns(q_metrics[["question", "attempts", "students", "percent_valid", "percent_invalid", "syntax_error_count"]]),
             }]
 
             difficulty_charts = []
@@ -703,14 +705,14 @@ if uploaded_files:
             sections.append({
                 "title": f"{prefix}Question Difficulty Analysis",
                 "caption": "Facility and discrimination (Best Attempt)",
-                "df": q_difficulty,
+                "df": humanize_columns(q_difficulty),
                 "charts": difficulty_charts,
             })
 
             sections.append({
                 "title": f"{prefix}Question Response Distribution",
                 "caption": "Response outcomes and top wrong answers",
-                "df": q_response_outcomes.merge(q_repeated_wrong.drop(columns=["top_wrong_expressions"], errors="ignore"), on="question", how="left"),
+                "df": humanize_columns(q_response_outcomes.merge(q_repeated_wrong.drop(columns=["top_wrong_expressions"], errors="ignore"), on="question", how="left")),
             })
 
             student_matrix_q = q_pool_b.pivot_table(
@@ -720,7 +722,7 @@ if uploaded_files:
             sections.append({
                 "title": f"{prefix}Student Performance Matrix",
                 "caption": "Per-student score per question (Best Attempt)",
-                "df": student_matrix_q.reset_index(),
+                "df": humanize_columns(student_matrix_q.reset_index()),
             })
 
             return sections
@@ -747,18 +749,18 @@ if uploaded_files:
         pdf_sections = []
         if pdf_include_question_breakdown:
             if show_summary:
-                pdf_sections.append({"title": "1. Question Summary", "caption": f"Participation and summary statistics ({selected_quiz_name})", "df": question_metrics[["question", "attempts", "students", "percent_valid", "percent_invalid", "syntax_error_count"]]})
+                pdf_sections.append({"title": "1. Question Summary", "caption": f"Participation and summary statistics ({selected_quiz_name})", "df": humanize_columns(question_metrics[["question", "attempts", "students", "percent_valid", "percent_invalid", "syntax_error_count"]])})
             if show_difficulty:
-                pdf_sections.append({"title": "2. Question Difficulty Analysis", "caption": "Facility and discrimination (Best Attempt)", "df": difficulty_metrics, "charts": difficulty_section_charts})
+                pdf_sections.append({"title": "2. Question Difficulty Analysis", "caption": "Facility and discrimination (Best Attempt)", "df": humanize_columns(difficulty_metrics), "charts": difficulty_section_charts})
             if show_item_details:
-                pdf_sections.append({"title": "3. Question Item Details & Error Drill-Down", "caption": "Question text, right answer, and wrong-response drill-down (Best Attempt)", "df": item_details_pdf_table})
+                pdf_sections.append({"title": "3. Question Item Details & Error Drill-Down", "caption": "Question text, right answer, and wrong-response drill-down (Best Attempt)", "df": humanize_columns(item_details_pdf_table)})
             if show_response:
                 repeated_wrong_answers_pdf = repeated_wrong_answers.drop(columns=["top_wrong_expressions"], errors="ignore")
-                pdf_sections.append({"title": "4. Question Response Distribution", "caption": "Response outcomes and top wrong answers", "df": response_outcomes.merge(repeated_wrong_answers_pdf, on="question", how="left"), "charts": response_section_charts})
+                pdf_sections.append({"title": "4. Question Response Distribution", "caption": "Response outcomes and top wrong answers", "df": humanize_columns(response_outcomes.merge(repeated_wrong_answers_pdf, on="question", how="left")), "charts": response_section_charts})
             if show_student:
-                pdf_sections.append({"title": "5. Student Performance Matrix", "caption": "Per-student score per question (Best Attempt)", "df": student_matrix.reset_index(), "charts": student_section_charts})
+                pdf_sections.append({"title": "5. Student Performance Matrix", "caption": "Per-student score per question (Best Attempt)", "df": humanize_columns(student_matrix.reset_index()), "charts": student_section_charts})
             if show_metrics:
-                pdf_sections.append({"title": "6. Question Metrics", "caption": "Consolidated question analytics table", "df": metrics_export})
+                pdf_sections.append({"title": "6. Question Metrics", "caption": "Consolidated question analytics table", "df": humanize_columns(metrics_export)})
 
             for extra_quiz in pdf_selected_quizzes:
                 if extra_quiz == selected_quiz_name:
