@@ -33,7 +33,7 @@ from analytics.quiz_metrics import (
 from analytics.response_analysis import compute_repeated_wrong_answers, compute_response_outcomes
 from analytics.summary import build_export_summary
 from analytics.syntax_analysis import compute_syntax_analysis
-from analytics.ui_theme import humanize_columns, inject_global_styles
+from analytics.ui_theme import humanize_column_name, humanize_columns, inject_global_styles
 from analytics.upload_cache import CACHE_HASH_FUNCS, clear_uploaded_files, get_uploader_key, sync_uploaded_files
 from analytics.validation import audit_question_data
 
@@ -234,6 +234,7 @@ if show_quiz_summary:
         "Select Statistics to Display",
         ["student_count", "attempt_rate", "mean_grade", "grade_variance", "mean_highest_grade", "attempt_count"],
         default=["student_count", "attempt_rate", "mean_grade", "grade_variance", "mean_highest_grade", "attempt_count"],
+        format_func=humanize_column_name,
     )
 show_quiz_boxplot = st.sidebar.checkbox("10. Quiz Grade Distribution (Box Plot)")
 show_quiz_engagement = st.sidebar.checkbox("11. Engagement Over Time")
@@ -248,6 +249,7 @@ if show_quiz_linegraph:
         "Select Metrics to Display",
         ["student_count", "attempt_rate", "mean_grade", "grade_variance"],
         default=["student_count", "attempt_rate", "mean_grade", "grade_variance"],
+        format_func=humanize_column_name,
     )
 
 if uploaded_files:

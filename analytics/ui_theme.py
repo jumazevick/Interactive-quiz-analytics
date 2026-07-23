@@ -14,6 +14,31 @@ _GLOBAL_CSS = """
    fully collapsing (it'd get stuck open by the difference, arrow and all). */
 section[data-testid="stSidebar"][aria-expanded="true"] {
     min-width: 370px !important;
+    /* Streamlit animates min-width/max-width/transform over 0.3s for its own
+       collapse/resize UX. Between multipage navigations, the sidebar briefly renders
+       at Streamlit's native default width before this stylesheet re-mounts, and
+       without this override that correction visibly slides in — a "pop" — instead of
+       just snapping to the right width. transform stays animated so manual
+       collapse/expand still slides smoothly; only the width snap is instant. */
+    transition: transform 0.3s !important;
+}
+
+/* Sidebar collapse arrow — Streamlit hides this (visibility: hidden) until the
+   sidebar is hovered, which makes it easy to lose track of how to collapse the
+   sidebar again. Keep it always visible while the sidebar is expanded. */
+div[data-testid="stSidebarCollapseButton"] {
+    visibility: visible !important;
+}
+
+/* Sidebar scrolling — stSidebarContent already scrolls as ONE region covering the
+   page nav links and everything below (uploader, checkboxes, etc.), which is what we
+   want. But Streamlit also gives the nested stSidebarUserContent div its own
+   independent overflow, so the lower portion of the sidebar gets a second, separate
+   scrollbar that scrolls out of sync with the first — that's the "two scroll things"
+   bug. Disabling just that inner one leaves stSidebarContent as the single scroll
+   region for the whole sidebar. */
+section[data-testid="stSidebar"] div[data-testid="stSidebarUserContent"] {
+    overflow-y: visible !important;
 }
 
 /* Buttons — consistent rounded, subtle-lift styling across st.button /

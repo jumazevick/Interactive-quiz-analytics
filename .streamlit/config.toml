@@ -1,8 +1,8 @@
 [theme]
-# Monotone design system: grayscale surfaces with a single neutral accent. Streamlit
-# only reads flat keys directly under [theme] for the active theme (nested
-# [theme.dark]/[theme.light] tables are NOT merged in automatically), so everything
-# has to live here rather than split across variant tables.
+# Monotone design system: grayscale surfaces with a single neutral accent. Defining
+# both [theme] (below, the dark variant) AND [theme.light] is what makes Streamlit
+# show the System/Light/Dark picker in the "⋮" menu at all — with only [theme] set,
+# Streamlit treats theming as fully locked down and hides the picker entirely.
 base = "dark"
 font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
 baseRadius = "0.75rem"
@@ -21,6 +21,19 @@ linkColor = "#d4d4d8"
 backgroundColor = "#111113"
 secondaryBackgroundColor = "#1a1a1d"
 borderColor = "#27272a"
+
+[theme.light]
+primaryColor = "#18181b"
+backgroundColor = "#fafafa"
+secondaryBackgroundColor = "#f0f0f1"
+textColor = "#18181b"
+borderColor = "#e4e4e7"
+linkColor = "#18181b"
+
+[theme.light.sidebar]
+backgroundColor = "#f2f2f3"
+secondaryBackgroundColor = "#e9e9eb"
+borderColor = "#e4e4e7"
 
 [client]
 toolbarMode = "auto"
