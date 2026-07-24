@@ -4,6 +4,7 @@ import re
 import pandas as pd
 from analytics.parser import (
     parse_response_cell,
+    parse_uploaded_file,
     build_response_rows,
     get_attempt_pools,
     detect_export_type,
@@ -206,6 +207,43 @@ def test_build_quiz_attempt_frame_collapses_per_question_rows_across_quizzes():
     assert set(attempt_frame["quiz_name"]) == {"QuizA", "QuizB"}
     assert attempt_frame[attempt_frame["quiz_name"] == "QuizA"]["overall_grade"].iloc[0] == 10.0
     assert attempt_frame[attempt_frame["quiz_name"] == "QuizB"]["overall_grade"].iloc[0] == 5.0
+
+
+class _FakeUploadedFile(io.BytesIO):
+    def __init__(self, content: str, name: str):
+        super().__init__(content.encode("utf-8-sig"))
+        self.name = name
+
+
+def test_parse_uploaded_file_recognizes_alternate_column_names():
+    # Some Moodle exports use "Username"/"Status"/"Started"/"Duration" instead of the
+    # more common "Email address"/"State"/"Started on"/"Time taken". These are just
+    # different labels for the same data, so parsing should treat them equivalently.
+    csv_text = (
+        "Last name,First name,Username,Status,Started,Completed,Duration,Grade/10.00,"
+        "Question 1,Response 1,Right answer 1\n"
+        "Doe,Jane,jane123,Finished,22 July 2026 09:00,22 July 2026 09:05,5 mins,10.00,"
+        "What is 2+2?,ans1: 4 [score]; prt1: # = 1 | prt1-1-T,4\n"
+        "Smith,John,john456,In progress,22 July 2026 09:00,,,,"
+        "What is 2+2?,,\n"
+    )
+    uploaded_file = _FakeUploadedFile(csv_text, "quiz-responses.csv")
+
+    df = parse_uploaded_file(uploaded_file)
+    # Aliases get renamed onto the canonical headers the rest of the parser expects.
+    assert "Email address" in df.columns
+    assert "State" in df.columns
+    assert "Started on" in df.columns
+
+    export_type = detect_export_type(df)
+    assert export_type == "responses"
+
+    rows = build_response_rows(df, quiz_name="Quiz 1")
+    # The "In progress" row (Status column) must be filtered out, same as "State".
+    assert len(rows) == 1
+    assert rows.loc[0, "student_id"] == "jane123"
+    assert rows.loc[0, "student_name"] == "Jane Doe"
+    assert rows.loc[0, "response_status"] == "correct"
 
 
 def test_clean_moodle_latex_merges_adjacent_inline_runs_without_dollar_collision():

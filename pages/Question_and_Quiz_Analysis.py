@@ -934,6 +934,11 @@ else:
                 - `Question 2` | `Response 2` | `Right answer 2`
                 - ...
                 - `Question N` | `Response N` | `Right answer N`
+
+                A few common alternate names are also recognized automatically, so exports using
+                these instead will still work: `Username` (instead of `Email address`), `Status`
+                (instead of `State`), `Started` (instead of `Started on`), and `Duration` (instead
+                of `Time taken`).
                 """
             )
 
