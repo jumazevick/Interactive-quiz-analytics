@@ -5,6 +5,15 @@ import re
 import pandas as pd
 
 
+# PRT names are author-defined in STACK (default "prt1"/"prt2", but Moodle exports
+# commonly show custom names like "Result"/"Result2" instead), so a segment is
+# recognized as a PRT field by process of elimination rather than a literal "prt"
+# prefix: exclude the "Seed: ..." metadata field and "ansK: ... [tag]" fields, and
+# treat anything else shaped like "<name>: value" as a PRT.
+_ANS_FIELD_RE = re.compile(r"^\s*ans\d+\s*:\s*.*\[(?:score|valid|invalid)\]\s*$", re.IGNORECASE)
+_SEED_FIELD_RE = re.compile(r"^\s*seed\s*:", re.IGNORECASE)
+
+
 def _parse_prt_values(response_text: str) -> list[tuple[str, float, str]]:
     """Extract PRT values from a response string."""
     if not response_text:
@@ -12,7 +21,9 @@ def _parse_prt_values(response_text: str) -> list[tuple[str, float, str]]:
 
     prts: list[tuple[str, float, str]] = []
     for part in response_text.split(";"):
-        match = re.match(r"^\s*(prt\w+)\s*:\s*(.+)$", part, flags=re.IGNORECASE)
+        if _ANS_FIELD_RE.match(part) or _SEED_FIELD_RE.match(part):
+            continue
+        match = re.match(r"^\s*(\w+)\s*:\s*(.+)$", part)
         if not match:
             continue
         prt_name = match.group(1).lower()

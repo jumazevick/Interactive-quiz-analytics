@@ -163,11 +163,15 @@ def parse_response_cell(cell_text: str) -> tuple[list[dict[str, Any]], list[dict
             "tag": m.group(3)
         })
 
-    # 2. Parse prt fields: prtK: ! OR prtK: # = fraction | note1 | note2...
-    prt_matches = re.finditer(r"prt(\d+):\s*(!|# = ([0-9.]+))(?:\s*\|\s*([^;]*))?", cell_text)
+    # 2. Parse PRT fields: <name>: ! OR <name>: # = fraction | note1 | note2...
+    # PRT names are author-defined in STACK (default "prt1"/"prt2", but Moodle exports
+    # commonly show custom names like "Result"/"Result2" instead) — matching depends on
+    # the "!" / "# = fraction" value shape, not on any literal "prt" prefix or embedded
+    # digit, so an index is assigned by order of appearance rather than parsed from the
+    # name (many custom names, e.g. "Result", carry no digit at all).
+    prt_matches = re.finditer(r"(\w+):\s*(!|# = ([0-9.]+))(?:\s*\|\s*([^;]*))?", cell_text)
     prt_list = []
-    for m in prt_matches:
-        idx = int(m.group(1))
+    for idx, m in enumerate(prt_matches, start=1):
         val = m.group(2)
         fraction = None
         answer_note = "(invalid/blank input)"
