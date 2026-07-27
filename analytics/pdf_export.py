@@ -24,18 +24,16 @@ _logger = logging.getLogger(__name__)
 
 _chrome_bootstrap_attempted = False
 
+# Surfaced in the PDF's "chart image unavailable" placeholder text itself, since on a
+# locked-down deployment (e.g. a Streamlit Community Cloud instance the user can't
+# reboot or view server logs for) the generated PDF may be the only diagnostic output
+# actually reachable — a bare "check the app logs" is a dead end there.
+_last_rasterization_error: str | None = None
 
-def _is_chrome_not_found(exc: Exception) -> bool:
-    """kaleido >= 1.0 renders via a real headless Chrome instead of a bundled
-    Chromium, and raises this specific error when none is discoverable on the host
-    (e.g. a bare Streamlit Community Cloud container with no `chromium` apt package
-    installed) — distinguishing it from other rasterization failures lets us attempt
-    a one-time self-heal (_ensure_chrome_available) instead of just giving up."""
-    try:
-        from choreographer.errors import ChromeNotFoundError
-        return isinstance(exc, ChromeNotFoundError)
-    except Exception:
-        return "chrome" in str(exc).lower() and "not" in str(exc).lower()
+
+def _record_rasterization_error(exc: Exception) -> None:
+    global _last_rasterization_error
+    _last_rasterization_error = f"{type(exc).__name__}: {exc}"
 
 
 def _ensure_chrome_available() -> None:
@@ -141,14 +139,18 @@ def _batch_rasterize_plotly_charts(sections: list[dict[str, Any]]) -> dict[int, 
     try:
         return _run_batch()
     except Exception as exc:
-        if _is_chrome_not_found(exc):
-            _ensure_chrome_available()
-            try:
-                return _run_batch()
-            except Exception:
-                _logger.warning("Batch chart rasterization failed after Chrome bootstrap retry.", exc_info=True)
-        else:
-            _logger.warning("Batch chart rasterization failed.", exc_info=True)
+        _record_rasterization_error(exc)
+        # Retry after a Chrome bootstrap attempt regardless of the exact exception type:
+        # on an unfamiliar host (e.g. a locked-down Cloud container) the "no Chrome"
+        # failure may not come back as the specific ChromeNotFoundError this checks for
+        # elsewhere, and the bootstrap itself is cheap/idempotent (only ever downloads
+        # once per process — see _ensure_chrome_available).
+        _ensure_chrome_available()
+        try:
+            return _run_batch()
+        except Exception as retry_exc:
+            _record_rasterization_error(retry_exc)
+            _logger.warning("Batch chart rasterization failed after Chrome bootstrap retry.", exc_info=True)
         return {}  # Leave results empty; _figure_to_png_bytes below re-tries per chart.
 
 
@@ -172,15 +174,14 @@ def _figure_to_png_bytes(figure: Any) -> bytes | None:
         try:
             return fig.to_image(format="png", width=w, height=h, scale=2)
         except Exception as exc:
-            if _is_chrome_not_found(exc):
-                _ensure_chrome_available()
-                try:
-                    return fig.to_image(format="png", width=w, height=h, scale=2)
-                except Exception:
-                    _logger.warning("Chart rasterization failed after Chrome bootstrap retry.", exc_info=True)
-                    return None
-            _logger.warning("Chart rasterization failed.", exc_info=True)
-            return None
+            _record_rasterization_error(exc)
+            _ensure_chrome_available()
+            try:
+                return fig.to_image(format="png", width=w, height=h, scale=2)
+            except Exception as retry_exc:
+                _record_rasterization_error(retry_exc)
+                _logger.warning("Chart rasterization failed after Chrome bootstrap retry.", exc_info=True)
+                return None
 
     if hasattr(figure, "savefig"):  # Matplotlib Figure
         try:
@@ -647,7 +648,8 @@ def generate_pdf_report(
             png_bytes = chart_png_cache.get(id(chart_source)) or _figure_to_png_bytes(chart_source)
             if not png_bytes:
                 if chart_title:
-                    story.append(Paragraph(f"{chart_title} — chart image unavailable (rendering failed; check the app logs for details).", note_style))
+                    reason = f" Reason: {_last_rasterization_error}" if _last_rasterization_error else ""
+                    story.append(Paragraph(f"{chart_title} — chart image unavailable (rendering failed).{reason}", note_style))
                 continue
 
             chart_elements: list[Any] = []
