@@ -32,7 +32,21 @@ _last_rasterization_error: str | None = None
 
 
 def _record_rasterization_error(exc: Exception) -> None:
+    """`plotly.io.to_image`/`write_images` raise a generic "requires the kaleido
+    package" ValueError whenever `plotly.io._kaleido.kaleido_available()` sees `import
+    kaleido` fail — but that helper only catches `ImportError` and reduces it to a bare
+    boolean, discarding the actual reason (missing sub-dependency, incompatible wheel
+    for the host platform, etc.). Re-importing kaleido ourselves right here, in the
+    same process, recovers that real underlying exception so it — rather than
+    plotly's sanitized message — is what ends up in the PDF's placeholder text.
+    """
     global _last_rasterization_error
+    if "kaleido" in str(exc).lower() and "install" in str(exc).lower():
+        try:
+            import kaleido  # noqa: F401
+        except Exception as import_exc:
+            _last_rasterization_error = f"kaleido failed to import — {type(import_exc).__name__}: {import_exc}"
+            return
     _last_rasterization_error = f"{type(exc).__name__}: {exc}"
 
 
