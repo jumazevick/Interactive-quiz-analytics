@@ -67,6 +67,34 @@ def _ensure_chrome_available() -> None:
         _logger.warning("Could not download a private Chrome for kaleido chart export.", exc_info=True)
 
 
+def _reset_stale_kaleido_cache() -> bool:
+    """`plotly.io._kaleido.kaleido_available()` imports kaleido once and memoizes the
+    True/False result in a module-level global for the rest of the process's life —
+    it never re-checks. On a long-lived server process (e.g. a Streamlit Community
+    Cloud container that stays up across every rerun), if that very first check ever
+    ran during a bad moment early in boot (racing the tail end of `pip install`
+    finishing), every export call for the rest of that process's life keeps treating
+    a now-perfectly-installed kaleido as absent — the exact "requires the kaleido
+    package" error even though `import kaleido` succeeds fine by itself.
+
+    Confirms kaleido really does import right now and, if so, clears plotly's cached
+    flag so the next `to_image()`/`write_images()` call re-checks instead of trusting
+    the stale memo. Returns True if kaleido is importable (whether or not a stale
+    cache was actually found and cleared).
+    """
+    try:
+        import kaleido  # noqa: F401
+    except Exception:
+        return False
+    try:
+        import plotly.io._kaleido as _plotly_kaleido
+        _plotly_kaleido._KALEIDO_AVAILABLE = None
+        _plotly_kaleido._KALEIDO_MAJOR = None
+    except Exception:
+        pass
+    return True
+
+
 def _prepare_plotly_export(figure: Any) -> tuple[Any, int, int] | None:
     """Clone + re-style a Plotly figure for export (real template, legend, margins) —
     st.plotly_chart(...) themes figures on-screen via Streamlit's frontend at render
@@ -154,11 +182,12 @@ def _batch_rasterize_plotly_charts(sections: list[dict[str, Any]]) -> dict[int, 
         return _run_batch()
     except Exception as exc:
         _record_rasterization_error(exc)
-        # Retry after a Chrome bootstrap attempt regardless of the exact exception type:
-        # on an unfamiliar host (e.g. a locked-down Cloud container) the "no Chrome"
-        # failure may not come back as the specific ChromeNotFoundError this checks for
-        # elsewhere, and the bootstrap itself is cheap/idempotent (only ever downloads
-        # once per process — see _ensure_chrome_available).
+        # Retry once after clearing a possibly-stale kaleido_available() cache (see
+        # _reset_stale_kaleido_cache) and a Chrome bootstrap attempt, regardless of the
+        # exact exception type: on an unfamiliar host (e.g. a locked-down Cloud
+        # container) the failure may not come back as the specific error type checked
+        # for elsewhere, and both recovery steps are cheap/idempotent.
+        _reset_stale_kaleido_cache()
         _ensure_chrome_available()
         try:
             return _run_batch()
@@ -189,6 +218,7 @@ def _figure_to_png_bytes(figure: Any) -> bytes | None:
             return fig.to_image(format="png", width=w, height=h, scale=2)
         except Exception as exc:
             _record_rasterization_error(exc)
+            _reset_stale_kaleido_cache()
             _ensure_chrome_available()
             try:
                 return fig.to_image(format="png", width=w, height=h, scale=2)
