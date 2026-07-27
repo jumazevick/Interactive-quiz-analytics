@@ -698,6 +698,7 @@ if uploaded_files:
             q_difficulty = quiz_analytics["difficulty_metrics"]
             q_response_outcomes = quiz_analytics["response_outcomes"]
             q_repeated_wrong = quiz_analytics["repeated_wrong_answers"]
+            q_prt_pass_rates = quiz_analytics["prt_pass_rates"]
             q_pool_b = quiz_analytics["pool_b_df"].copy()
             q_ranked_difficulty = quiz_analytics["ranked_difficulty"]
 
@@ -760,10 +761,50 @@ if uploaded_files:
                 })
 
             if "4. Question Response Distribution" in selected_sections:
+                response_charts = []
+                has_prt_data = bool(any(str(row.get("response_text", "")).strip() for _, row in quiz_df.iterrows()))
+                if has_prt_data:
+                    valid_invalid_q = pd.DataFrame({
+                        "question": q_metrics["question"],
+                        "Valid %": q_metrics["percent_valid"],
+                        "Invalid/Syntax Error %": q_metrics["percent_invalid"],
+                    })
+                    fig = px.bar(
+                        q_response_outcomes, x="question", y=["correct_percent", "incorrect_percent"],
+                        barmode="group", color_discrete_sequence=qualitative_colors(colorblind_mode, px.colors.qualitative.Vivid),
+                        labels={"value": "Percent", "question": "Question"},
+                    )
+                    fig.update_layout(title="Response Outcome Percentages (Best Attempts)", template="plotly")
+                    response_charts.append({"title": "Response Outcome Percentages (Best Attempts)", "figure": fig})
+
+                    fig2 = px.bar(
+                        valid_invalid_q, x="question", y=["Valid %", "Invalid/Syntax Error %"],
+                        barmode="group", color_discrete_sequence=qualitative_colors(colorblind_mode, px.colors.qualitative.Vivid),
+                        labels={"value": "Percent", "question": "Question"},
+                    )
+                    fig2.update_layout(title="Valid vs Invalid Attempts (All Attempts)", template="plotly")
+                    response_charts.append({"title": "Valid vs Invalid Attempts (All Attempts)", "figure": fig2})
+
+                    if not q_prt_pass_rates.empty:
+                        heatmap_df = q_prt_pass_rates.pivot_table(
+                            index="question", columns="prt_name", values="pass_rate",
+                            aggfunc="first", fill_value=0, dropna=False,
+                        )
+                        fig3 = px.imshow(
+                            heatmap_df,
+                            labels=dict(x="PRT", y="Question", color="Pass %"),
+                            color_continuous_scale=pass_fail_scale(colorblind_mode),
+                        )
+                        fig3.update_xaxes(tickmode="array", tickvals=list(range(len(heatmap_df.columns))), ticktext=[str(c) for c in heatmap_df.columns])
+                        fig3.update_yaxes(tickmode="array", tickvals=list(range(len(heatmap_df.index))), ticktext=[str(r) for r in heatmap_df.index])
+                        fig3.update_layout(title="PRT Pass Heatmap", template="plotly")
+                        response_charts.append({"title": "PRT Pass Heatmap", "figure": fig3})
+
                 sections.append({
                     "title": f"{prefix}4. Question Response Distribution",
                     "caption": "Response outcomes and top wrong answers",
                     "df": humanize_columns(q_response_outcomes.merge(q_repeated_wrong.drop(columns=["top_wrong_expressions"], errors="ignore"), on="question", how="left")),
+                    "charts": response_charts,
                 })
 
             if "5. Student Performance Matrix" in selected_sections:
@@ -771,10 +812,18 @@ if uploaded_files:
                     index="student_id", columns="question", values="grade",
                     aggfunc="first", fill_value=0.0, dropna=False,
                 ).reindex(columns=q_order, fill_value=0.0)
+
+                fig = px.imshow(student_matrix_q, labels=dict(x="Question", y="Student", color="Score"), color_continuous_scale="Viridis")
+                fig.update_xaxes(tickmode="array", tickvals=list(range(len(student_matrix_q.columns))), ticktext=[str(c) for c in student_matrix_q.columns])
+                fig.update_yaxes(tickmode="array", tickvals=list(range(len(student_matrix_q.index))), ticktext=[str(r) for r in student_matrix_q.index])
+                chart_height = max(400, 24 * len(student_matrix_q.index))
+                fig.update_layout(title="Student-by-Question Performance Matrix (Best Attempts)", height=chart_height, template="plotly")
+
                 sections.append({
                     "title": f"{prefix}5. Student Performance Matrix",
                     "caption": "Per-student score per question (Best Attempt)",
                     "df": humanize_columns(student_matrix_q.reset_index()),
+                    "charts": [{"title": "Student-by-Question Performance Matrix (Best Attempts)", "figure": fig}],
                 })
 
             if "6. Question Metrics" in selected_sections:
