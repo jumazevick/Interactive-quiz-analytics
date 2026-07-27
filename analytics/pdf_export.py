@@ -8,7 +8,6 @@ import re
 import tempfile
 from typing import Any
 import pandas as pd
-import plotly.io as pio
 from matplotlib.font_manager import FontProperties
 from matplotlib.mathtext import math_to_image
 
@@ -32,21 +31,7 @@ _last_rasterization_error: str | None = None
 
 
 def _record_rasterization_error(exc: Exception) -> None:
-    """`plotly.io.to_image`/`write_images` raise a generic "requires the kaleido
-    package" ValueError whenever `plotly.io._kaleido.kaleido_available()` sees `import
-    kaleido` fail — but that helper only catches `ImportError` and reduces it to a bare
-    boolean, discarding the actual reason (missing sub-dependency, incompatible wheel
-    for the host platform, etc.). Re-importing kaleido ourselves right here, in the
-    same process, recovers that real underlying exception so it — rather than
-    plotly's sanitized message — is what ends up in the PDF's placeholder text.
-    """
     global _last_rasterization_error
-    if "kaleido" in str(exc).lower() and "install" in str(exc).lower():
-        try:
-            import kaleido  # noqa: F401
-        except Exception as import_exc:
-            _last_rasterization_error = f"kaleido failed to import — {type(import_exc).__name__}: {import_exc}"
-            return
     _last_rasterization_error = f"{type(exc).__name__}: {exc}"
 
 
@@ -65,34 +50,6 @@ def _ensure_chrome_available() -> None:
         kaleido.get_chrome_sync()
     except Exception:
         _logger.warning("Could not download a private Chrome for kaleido chart export.", exc_info=True)
-
-
-def _reset_stale_kaleido_cache() -> bool:
-    """`plotly.io._kaleido.kaleido_available()` imports kaleido once and memoizes the
-    True/False result in a module-level global for the rest of the process's life —
-    it never re-checks. On a long-lived server process (e.g. a Streamlit Community
-    Cloud container that stays up across every rerun), if that very first check ever
-    ran during a bad moment early in boot (racing the tail end of `pip install`
-    finishing), every export call for the rest of that process's life keeps treating
-    a now-perfectly-installed kaleido as absent — the exact "requires the kaleido
-    package" error even though `import kaleido` succeeds fine by itself.
-
-    Confirms kaleido really does import right now and, if so, clears plotly's cached
-    flag so the next `to_image()`/`write_images()` call re-checks instead of trusting
-    the stale memo. Returns True if kaleido is importable (whether or not a stale
-    cache was actually found and cleared).
-    """
-    try:
-        import kaleido  # noqa: F401
-    except Exception:
-        return False
-    try:
-        import plotly.io._kaleido as _plotly_kaleido
-        _plotly_kaleido._KALEIDO_AVAILABLE = None
-        _plotly_kaleido._KALEIDO_MAJOR = None
-    except Exception:
-        pass
-    return True
 
 
 def _prepare_plotly_export(figure: Any) -> tuple[Any, int, int] | None:
@@ -135,18 +92,28 @@ def _batch_rasterize_plotly_charts(sections: list[dict[str, Any]]) -> dict[int, 
     """Rasterize every Plotly figure across every section in ONE kaleido call instead
     of one call per chart.
 
-    kaleido 1.x launches a fresh headless Chrome instance for each `fig.to_image()` /
-    `write_image()` call (~4s of pure browser-startup overhead every time, confirmed
-    by profiling — it does not get faster on repeat calls), which is what made PDF
-    generation with several charts take tens of seconds. `plotly.io.write_images`
-    (kaleido >= 1.0) amortizes that one Chrome startup across an entire batch: 10
-    charts rasterize in ~4s total instead of ~40s. It writes to real file paths (an
-    in-memory BytesIO target silently produces empty output), hence the temp dir.
+    Calls kaleido's own `write_fig_from_object_sync` directly instead of routing
+    through `plotly.io.write_images` — the plotly wrapper's kaleido-version-detection
+    glue (`kaleido_available()`/`kaleido_major()`) turned out to behave inconsistently
+    across plotly/kaleido version combinations on at least one real deployment (a
+    stale "kaleido not installed" error for some figures in a batch while others in
+    the very same batch rasterized fine), which no amount of retrying that layer could
+    reliably fix. Talking to kaleido directly sidesteps that glue code entirely.
+
+    kaleido launches a fresh headless Chrome instance per top-level call (~3s of pure
+    browser-startup overhead, confirmed by profiling — it does not get faster on
+    repeat calls), which is what made PDF generation with several charts take tens of
+    seconds. Passing every figure to one `write_fig_from_object_sync` call amortizes
+    that one Chrome startup across the whole batch. `cancel_on_error=False` means one
+    bad figure in the batch can't blank out the rest — it just fails to produce a file
+    for that one job, exactly like an isolated per-chart failure would.
 
     Returns {id(original_figure): png_bytes} for every figure that rasterized
     successfully; figures that fail or aren't Plotly figures are simply absent from
     the result, and the per-chart fallback path in generate_pdf_report handles them.
     """
+    import kaleido
+
     jobs: list[tuple[int, Any, int, int]] = []
     for sec in sections:
         for chart in (sec.get("charts") or []):
@@ -163,18 +130,13 @@ def _batch_rasterize_plotly_charts(sections: list[dict[str, Any]]) -> dict[int, 
         batch_results: dict[int, bytes] = {}
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = [os.path.join(tmpdir, f"chart_{i}.png") for i in range(len(jobs))]
-            pio.write_images(
-                fig=[job[1] for job in jobs],
-                file=paths,
-                format="png",
-                width=[job[2] for job in jobs],
-                height=[job[3] for job in jobs],
-                scale=2,
-            )
+            specs = [
+                {"fig": fig, "path": path, "opts": {"format": "png", "width": w, "height": h, "scale": 2}}
+                for (_, fig, w, h), path in zip(jobs, paths)
+            ]
+            kaleido.write_fig_from_object_sync(specs, cancel_on_error=False)
             for (original_id, _, _, _), path in zip(jobs, paths):
-                with open(path, "rb") as f:
-                    data = f.read()
-                if data:
+                if os.path.exists(path) and (data := open(path, "rb").read()):
                     batch_results[original_id] = data
         return batch_results
 
@@ -182,12 +144,6 @@ def _batch_rasterize_plotly_charts(sections: list[dict[str, Any]]) -> dict[int, 
         return _run_batch()
     except Exception as exc:
         _record_rasterization_error(exc)
-        # Retry once after clearing a possibly-stale kaleido_available() cache (see
-        # _reset_stale_kaleido_cache) and a Chrome bootstrap attempt, regardless of the
-        # exact exception type: on an unfamiliar host (e.g. a locked-down Cloud
-        # container) the failure may not come back as the specific error type checked
-        # for elsewhere, and both recovery steps are cheap/idempotent.
-        _reset_stale_kaleido_cache()
         _ensure_chrome_available()
         try:
             return _run_batch()
@@ -214,14 +170,16 @@ def _figure_to_png_bytes(figure: Any) -> bytes | None:
     prepared = _prepare_plotly_export(figure)
     if prepared is not None:
         fig, w, h = prepared
+        import kaleido
+
+        opts = {"format": "png", "width": w, "height": h, "scale": 2}
         try:
-            return fig.to_image(format="png", width=w, height=h, scale=2)
+            return kaleido.calc_fig_sync(fig, opts=opts)
         except Exception as exc:
             _record_rasterization_error(exc)
-            _reset_stale_kaleido_cache()
             _ensure_chrome_available()
             try:
-                return fig.to_image(format="png", width=w, height=h, scale=2)
+                return kaleido.calc_fig_sync(fig, opts=opts)
             except Exception as retry_exc:
                 _record_rasterization_error(retry_exc)
                 _logger.warning("Chart rasterization failed after Chrome bootstrap retry.", exc_info=True)
