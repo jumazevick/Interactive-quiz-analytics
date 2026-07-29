@@ -6,16 +6,27 @@
 
 This project is a Streamlit dashboard for analyzing Moodle STACK quiz exports. It helps lecturers and administrators inspect student performance, question difficulty, response/PRT behaviour, and engagement patterns across one or more quizzes — entirely client-side, with no quiz data ever leaving the browser session.
 
-The app is a single **Question & Quiz Analysis** page, linked from the home page, driven by one upload of a Moodle **Responses** export (optionally merged with a **Grades with question breakdown** export for more accurate per-question scoring):
+The app has two analysis pages, both linked from the home page and both driven by the same upload of a Moodle **Responses** export (optionally merged with a **Grades with question breakdown** export for more accurate per-question scoring). An upload made on either page is picked up by the other automatically — you never upload the same file twice.
+
+**Question & Quiz Analysis** — what the class scored:
 
 - **Question Analysis** (top, scoped to whichever quiz is selected) — question summary, difficulty/discrimination, per-question text with a right-answer/error drill-down, response distribution and PRT pass rates, a student-by-question performance matrix, and a consolidated metrics table.
 - **Quiz Analysis** (bottom, combined across every uploaded quiz you choose to include) — merged attempt list, summary stats, grade distribution, engagement over time, attempts-vs-grade correlation, and metric trends across quizzes.
+
+**Solution Process Visualization** — *how* students got there, across their retakes of one question:
+
+- **Transition graphs** — a directed graph of one student's movement between PRT-classified answer types (unclassified wrong → a specific classified wrong answer → correct), plus the class-wide aggregate where edge thickness and color show how many students made each transition, with in-degree / out-degree / degree centrality per node.
+- **3D distance charts** — every student's trajectory toward the correct answer over their attempts, measured two ways: PRT-node distance, and Tree Edit Distance between the submitted and correct CAS expressions.
 
 Special thanks to:
 - **Juma** for the original hackathon idea and implementation, quiz and question analysis research, and advising.
 - **Ernest** for the question analysis research, technical setup and development, and implementation.
 - **Sage** for the technical setup.
 - **Otis** for the question analysis research.
+
+The Solution Process Visualization page implements methods published by their authors, with thanks and full credit to:
+- **Asahi Kurihara** and **Yasuyuki Nakamura** (Nagoya University), *Network Analysis of Solution Processes in Math Online Tests*, Companion Proceedings of the 15th International Conference on Learning Analytics & Knowledge (LAK25), 2025, pp. 257–259 — the answer-transition directed graphs and their network features.
+- **Tomoki Takada** and **Yasuyuki Nakamura** (Nagoya University) and **Saburo Higuchi** (Ryukoku University), [*Visualization of Solution Processes to Reach the Correct Answer in Online Math Tests*](https://doi.org/10.5281/zenodo.15870221), Proceedings of the 18th International Conference on Educational Data Mining (EDM 2025), Palermo, Italy, pp. 635–639 — the 3D PRT-distance and Tree Edit Distance visualizations.
 
 ## Features
 
@@ -35,6 +46,12 @@ Special thanks to:
   - **Real math typesetting, not raw LaTeX**: STACK answer expressions and question/right-answer text are rasterized through Matplotlib's `mathtext` renderer directly into the PDF's tables, so fractions, radicals, superscripts, and Greek letters render as actual math instead of literal `$...$`/backslash-command text. Sizing is shared across each table column (based on that column's typical entry width, not its single longest outlier) so answers read at a consistent, legible size.
   - **Multi-quiz breakdown ordering**: when several quizzes are selected for the Question Analysis breakdown, the PDF gives each quiz its own complete run of sections 1–6 (quiz A's summary through metrics, then quiz B's, and so on) before moving on to the combined Quiz Analysis sections — rather than interleaving section 1 for every quiz, then section 2 for every quiz.
 - **Data validation**: flags mismatches between calculated per-question scores and Moodle's own recorded grade, and other basic sanity checks, directly in the UI.
+- **Solution process visualization** (its own page — see the two papers credited above):
+  - **Per-student and class-wide transition graphs**: pick a question and click a student in the roster to see their answer transitions as a directed graph — node `c` is full marks, a numbered node is the classified wrong answer that part's PRT matched, and node `0` is an unclassified wrong answer. The class-wide aggregate superimposes every student's transitions, scaling each edge's thickness *and* color (green = few, red = many) by how many students made it, and reports in-degree / out-degree / degree centrality per node.
+  - **Multi-part questions**: a STACK question split into several parts (`prt1`, `prt2`, ...) is scored and classified independently per part, so every graph and chart on the page is scoped to one selected part rather than silently reporting on part 1 alone.
+  - **3D solution-process charts**: one polyline per student over Attempt × Students × distance-from-correct, with each point colored by its own distance (white at 0, neon red at 1, running up through orange/yellow/green/blue to black at the largest distance seen) so a trajectory that closes in on the answer visibly shifts color along its length. Students are ordered along the Students axis by their first attempt's distance, then their second within each of those groups, and so on.
+  - **Two distance measures**: *PRT distance*, a generalization of the teacher-authored distance table in Takada et al., and *Tree Edit Distance*, the Zhang-Shasha edit distance between the expression tree of the submitted CAS answer and that of the correct one — which separates answers the PRT lumps together into one unclassified bucket.
+  - **Fixed scene backdrop**: the 3D charts stay fully rotatable, but their walls are pinned to three fixed planes instead of Plotly's default panes, which jump from one side of the box to the other mid-drag. Both charts also open from the same fixed viewpoint every render.
 
 ## Project Structure
 
@@ -44,8 +61,16 @@ streamlit_app.py                     # Thin entry point (re-exports Home.py) for
 .streamlit/config.toml               # Theme (colors, font, radius) — Streamlit only auto-discovers config here
 packages.txt                         # apt packages for Streamlit Community Cloud (chromium, for chart export — see below)
 pages/
-  Question_and_Quiz_Analysis.py      # The single unified analysis page
+  Question_and_Quiz_Analysis.py      # Question + quiz performance analysis
+  Solution_Process_Visualization.py  # Answer-transition graphs and 3D distance charts
 analytics/                           # Parsing, metrics, PDF export, and other shared logic
+  parser.py                          # Moodle/STACK export parsing (responses, PRT traces, attempt pools)
+  data_loader.py                     # Shared upload -> (quiz metadata, response DataFrame), used by both pages
+  prt_transitions.py                 # Node classification, transition graphs, network features
+  solution_distance.py               # PRT/TED distance series and the 3D scene
+  expression_tree.py                 # Maxima CAS string -> ordered labelled expression tree
+  tree_edit_distance.py              # Zhang-Shasha tree edit distance
+  pdf_export.py                      # Chart rasterization + ReportLab report generation
 tests/                               # Pytest suite for the analytics/parsing pipeline
 ```
 
@@ -60,6 +85,8 @@ tests/                               # Pytest suite for the analytics/parsing pi
 - **Matplotlib**: date-axis utilities, and (via its `mathtext` renderer) rasterizing STACK LaTeX/Maxima math expressions directly into the PDF's tables so they typeset as real math instead of literal `$...$` text — no chart rendering.
 - **ReportLab**: PDF report generation, including an auto-populated Table of Contents (`reportlab.platypus.tableofcontents`) built over two layout passes (`multiBuild`) so section page numbers resolve correctly.
 - **OpenPyXL / xlrd**: reading `.xlsx` and `.xls` files.
+
+No graph or tree-distance library is used. The transition graphs on the Solution Process Visualization page only ever hold a handful of nodes, so their centrality measures are computed directly from the edge counts and the nodes are laid out on a deterministic circle — no `networkx`. Likewise the Maxima expression parser and the Zhang-Shasha tree edit distance are implemented in `analytics/expression_tree.py` and `analytics/tree_edit_distance.py` rather than pulled in from `zss`. Both keep the dependency set unchanged.
 
 ### Deploying to Streamlit Community Cloud
 

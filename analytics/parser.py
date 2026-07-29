@@ -175,12 +175,14 @@ def parse_response_cell(cell_text: str) -> tuple[list[dict[str, Any]], list[dict
         val = m.group(2)
         fraction = None
         answer_note = "(invalid/blank input)"
+        answer_notes: list[str] = []
 
         if val != "!":
             fraction = float(m.group(3))
             notes_str = m.group(4)
             if notes_str:
                 tokens = [t.strip() for t in notes_str.split("|") if t.strip()]
+                answer_notes = tokens
                 if tokens:
                     answer_note = tokens[-1]
                 else:
@@ -191,7 +193,15 @@ def parse_response_cell(cell_text: str) -> tuple[list[dict[str, Any]], list[dict
         prt_list.append({
             "index": idx,
             "fraction": fraction,
-            "answer_note": answer_note
+            # Terminal answer note only — the node the PRT traversal ended at. Kept as the
+            # primary field because that's what every existing consumer expects.
+            "answer_note": answer_note,
+            # Full traversal trace (e.g. ["prt1-1-F", "prt1-2-F", "prt1-3-T"]). Needed to
+            # tell "ended at node 3 and matched it" (…-3-T) apart from "fell through node 3
+            # without matching anything" (…-3-F) — the terminal note alone can't distinguish
+            # those, and treating the latter as node 3 invents a classification the PRT
+            # never actually made.
+            "answer_notes": answer_notes,
         })
 
     return ans_list, prt_list

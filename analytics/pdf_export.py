@@ -23,6 +23,15 @@ _logger = logging.getLogger(__name__)
 
 _chrome_bootstrap_attempted = False
 
+# The frame every chart image is laid out into: the page's text column, and the tallest
+# a chart may be before it is scaled down to fit.
+_USABLE_WIDTH = letter[0] - 108  # 504 pt
+_MAX_CHART_HEIGHT = 260
+
+# How far the export camera is pulled back from a 3D figure's on-screen viewpoint, so
+# the projected cube stops running its own axis labels off the edge of the raster.
+_EXPORT_CAMERA_ZOOM_OUT = 1.25
+
 # Surfaced in the PDF's "chart image unavailable" placeholder text itself, since on a
 # locked-down deployment (e.g. a Streamlit Community Cloud instance the user can't
 # reboot or view server logs for) the generated PDF may be the only diagnostic output
@@ -69,14 +78,40 @@ def _prepare_plotly_export(figure: Any) -> tuple[Any, int, int] | None:
     export_width, export_height = 800, 400
     try:
         cloned = figure.__class__(figure)
-        cloned.update_layout(
-            template="plotly",
-            # Bottom margin is generous enough for a 2-line wrapped x-axis category
-            # label (e.g. the line graph's wrapped quiz names) plus the axis title
-            # and the horizontal legend below it, without any of the three overlapping.
-            margin=dict(l=50, r=50, t=50, b=110),
-            legend=dict(orientation="h", yanchor="bottom", y=-0.4, xanchor="center", x=0.5),
-        )
+        if cloned.layout.scene.to_plotly_json():
+            # A 3D scene draws its axis titles and tick labels *inside* the plot area,
+            # angled along the projected edges of the cube, so the 2D recipe below is
+            # wrong for it twice over: wide side margins squeeze the cube rather than
+            # making room, and on a 2:1 canvas the projection runs the "Students" and
+            # "Attempt" titles straight off the bottom corners. A taller, squarer canvas
+            # with thin margins gives the projection the room it needs.
+            # Sized to the frame the page layout gives a chart (`usable_width` wide,
+            # `_MAX_CHART_HEIGHT` tall): match that aspect and the scene lands at full
+            # width, where a squarer raster would be shrunk to fit the height cap and
+            # printed noticeably smaller than the bar charts around it.
+            export_height = _MAX_CHART_HEIGHT * 2
+            export_width = int(export_height * _USABLE_WIDTH / _MAX_CHART_HEIGHT)
+            cloned.update_layout(template="plotly", margin=dict(l=10, r=10, t=60, b=10))
+            # Even on that canvas the projected cube fills the frame edge to edge and
+            # pushes its own labels off it, so the export camera is pulled back a notch —
+            # the same viewpoint, just further away, which shrinks the cube and leaves a
+            # margin for the labels. On-screen framing is untouched.
+            eye = cloned.layout.scene.camera.eye
+            if eye is not None and None not in (eye.x, eye.y, eye.z):
+                cloned.update_layout(scene=dict(camera=dict(
+                    eye=dict(x=eye.x * _EXPORT_CAMERA_ZOOM_OUT,
+                             y=eye.y * _EXPORT_CAMERA_ZOOM_OUT,
+                             z=eye.z * _EXPORT_CAMERA_ZOOM_OUT),
+                )))
+        else:
+            cloned.update_layout(
+                template="plotly",
+                # Bottom margin is generous enough for a 2-line wrapped x-axis category
+                # label (e.g. the line graph's wrapped quiz names) plus the axis title
+                # and the horizontal legend below it, without any of the three overlapping.
+                margin=dict(l=50, r=50, t=50, b=110),
+                legend=dict(orientation="h", yanchor="bottom", y=-0.4, xanchor="center", x=0.5),
+            )
         # Respect a figure's own explicit size (e.g. the student-performance heatmap
         # scales its height to the student count) instead of overriding it.
         if cloned.layout.width:
@@ -589,7 +624,7 @@ def generate_pdf_report(
         story.append(toc)
         story.append(PageBreak())
 
-    usable_width = letter[0] - 108  # 504 pt
+    usable_width = _USABLE_WIDTH
 
     chart_png_cache = _batch_rasterize_plotly_charts(sections)
 
@@ -660,11 +695,10 @@ def generate_pdf_report(
 
             image_reader = ImageReader(io.BytesIO(png_bytes))
             img_w, img_h = image_reader.getSize()
-            max_height = 260
             scale = usable_width / img_w if img_w else 1.0
             draw_w, draw_h = img_w * scale, img_h * scale
-            if draw_h > max_height:
-                shrink = max_height / draw_h
+            if draw_h > _MAX_CHART_HEIGHT:
+                shrink = _MAX_CHART_HEIGHT / draw_h
                 draw_w, draw_h = draw_w * shrink, draw_h * shrink
 
             chart_elements.append(Image(io.BytesIO(png_bytes), width=draw_w, height=draw_h))
