@@ -7,6 +7,7 @@ import plotly.express as px
 import streamlit as st
 
 from analytics.anonymize import anonymize_response_df
+from analytics.data_loader import load_quiz_data
 from analytics.difficulty import compute_difficulty_metrics
 from analytics.latex_utils import clean_moodle_latex, extract_stack_answer_latex, maxima_expr_to_latex
 from analytics.parser import (
@@ -14,8 +15,6 @@ from analytics.parser import (
     build_response_rows,
     detect_export_type,
     get_attempt_pools,
-    merge_grade_breakdown_rows,
-    parse_uploaded_file,
 )
 from analytics.pdf_export import generate_pdf_report
 from analytics.prt_analysis import build_prt_frame, compute_prt_pass_rates
@@ -34,7 +33,7 @@ from analytics.response_analysis import compute_repeated_wrong_answers, compute_
 from analytics.summary import build_export_summary
 from analytics.syntax_analysis import compute_syntax_analysis
 from analytics.ui_theme import humanize_column_name, humanize_columns, inject_global_styles, pass_fail_scale, qualitative_colors
-from analytics.upload_cache import CACHE_HASH_FUNCS, clear_uploaded_files, get_uploader_key, sync_uploaded_files
+from analytics.upload_cache import clear_uploaded_files, get_uploader_key, sync_uploaded_files
 from analytics.validation import audit_question_data
 
 
@@ -142,57 +141,6 @@ if st.sidebar.button("🗑️ Clear / Reset All Uploaded Files", use_container_w
     st.rerun()
 
 anonymize_data = st.sidebar.checkbox("🔒 Anonymize Student Data", value=True)
-
-
-@st.cache_data(show_spinner=False, hash_funcs=CACHE_HASH_FUNCS)
-def load_quiz_data(files) -> tuple[list[dict[str, object]], pd.DataFrame]:
-    quiz_groups: dict[str, list[pd.DataFrame]] = {}
-    quiz_metadata: list[dict[str, object]] = []
-
-    def normalize_quiz_name(file_name: str) -> str:
-        name = file_name.rsplit(".", 1)[0]
-        return re.sub(r"[-_](responses|grades|grade)$", "", name, flags=re.IGNORECASE)
-
-    for index, uploaded_file in enumerate(files, start=1):
-        df = parse_uploaded_file(uploaded_file)
-        export_type = detect_export_type(df)
-        quiz_name = normalize_quiz_name(uploaded_file.name)
-        if export_type == "grades_breakdown":
-            parsed_df = build_grade_breakdown_rows(df, quiz_name=quiz_name)
-        elif export_type == "responses":
-            parsed_df = build_response_rows(df, quiz_name=quiz_name)
-        else:
-            parsed_df = pd.DataFrame(columns=[
-                "student_id", "student_name", "question", "grade", "max_grade",
-                "response_status", "response_text", "quiz_name", "overall_grade",
-                "completed_dt", "started_on", "attempt_idx", "source_type",
-                "question_text", "right_answer_text"
-            ])
-
-        if not parsed_df.empty:
-            parsed_df["quiz_id"] = index
-            parsed_df["quiz_name"] = quiz_name
-            quiz_groups.setdefault(quiz_name, []).append(parsed_df)
-        quiz_metadata.append({"quiz_id": index, "quiz_name": quiz_name})
-
-    if not quiz_groups:
-        return quiz_metadata, pd.DataFrame(columns=["student_id", "student_name", "question", "grade", "max_grade", "response_status", "response_text", "quiz_name", "quiz_id", "overall_grade", "completed_dt", "started_on", "attempt_idx", "source_type", "question_text", "right_answer_text"])
-
-    combined_frames = []
-    for quiz_name, frames in quiz_groups.items():
-        combined = pd.concat(frames, ignore_index=True)
-        if len(frames) > 1:
-            response_frames = [frame for frame in frames if not frame.empty and frame.get("source_type", "responses").eq("responses").any()]
-            grade_frames = [frame for frame in frames if not frame.empty and frame.get("source_type", "responses").eq("grades_breakdown").any()]
-            if response_frames and grade_frames:
-                response_rows = pd.concat(response_frames, ignore_index=True)
-                grade_rows = pd.concat(grade_frames, ignore_index=True)
-                combined = merge_grade_breakdown_rows(response_rows, grade_rows)
-                combined["quiz_name"] = quiz_name
-                combined["quiz_id"] = 0
-        combined_frames.append(combined)
-
-    return quiz_metadata, pd.concat(combined_frames, ignore_index=True)
 
 
 quiz_metadata: list[dict[str, object]] = []
