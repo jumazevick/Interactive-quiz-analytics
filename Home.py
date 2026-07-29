@@ -206,6 +206,19 @@ with st.container(border=True):
         - **Otis** for the question analysis research.
         """
     )
+    st.markdown(
+        """
+        The **Solution Process Visualization** page implements methods published by their
+        authors, with thanks and full credit to:
+        - **Asahi Kurihara** and **Yasuyuki Nakamura** — Nagoya University — for
+          *Network Analysis of Solution Processes in Math Online Tests*, for the directed graphs. 
+        - **Tomoki Takada** and **Yasuyuki Nakamura** — Nagoya University — and
+          **Saburo Higuchi** — Ryukoku University — for
+          *Visualization of Solution Processes to Reach the Correct Answer in Online
+          Math Tests*, for the 3D PRT-distance and Tree Edit Distance
+          visualizations. 
+        """
+    )
     st.write("The project is still a work in progress. If you discover bugs or have suggestions for improvements, please open a Pull Request on GitHub.")
 
 # Persistent Footer (Part 6.2)
