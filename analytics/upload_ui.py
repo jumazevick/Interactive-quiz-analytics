@@ -35,21 +35,38 @@ section[data-testid="stSidebar"] > div:first-child,
     overflow-y: auto !important;
     max-height: 100vh !important;
 }
-/* Selectbox dropdowns are portaled to <body> as fixed-position elements, so no ancestor
-   bounds them: with enough uploaded files the option list is tall enough that BaseWeb
-   places its lower rows past the bottom of the window, where they can't be scrolled to.
-   Capping the inner scroller in viewport units keeps the whole popover on screen and
-   scrollable within that cap. (The list is a `div` with role="listbox", not a `ul`.) */
+/* Keep the sidebar's own height in check, because a selectbox near the bottom of a long
+   sidebar is unusable: its option list is portaled out as a fixed-position element and
+   positioned *below* the trigger, so with the trigger at y≈980 in a 1050px window the
+   whole list opens off-screen and can't be scrolled to — the popover is outside the
+   sidebar's scroll container, so scrolling the sidebar afterwards doesn't bring it back.
+   (Reproduced with 14 uploaded quizzes before these caps were added.) Two things drive
+   that height: the uploader's own chip per uploaded file, and our uploaded-files list. */
+section[data-testid="stSidebar"] [data-testid="stFileChips"] {
+    max-height: 9vh;
+    overflow-y: auto;
+}
+[data-testid="stSidebarUserContent"] [data-testid="stExpanderDetails"] {
+    max-height: 14vh;
+    overflow-y: auto;
+}
+/* Scroll headroom under the last control. React-aria only flips the option list above its
+   trigger when it judges there to be too little room below — at a tall viewport it happily
+   opens a scrollable list that runs past the bottom edge instead. This padding lets the
+   sidebar scroll any control up into the top half of the window, where the list always has
+   room, instead of the sidebar bottoming out with the last selector still near the fold. */
+[data-testid="stSidebarUserContent"] {
+    padding-bottom: 40vh;
+}
+/* And cap the option list itself so a low trigger still leaves it mostly on screen.
+   Selectors cover both renderers Streamlit has shipped — react-aria (current, plain
+   role="listbox") and the older BaseWeb popover — since neither is a documented API and
+   the markup has changed across versions. */
+div[role="listbox"],
 div[data-testid="stSelectboxVirtualDropdown"] > div,
 div[data-baseweb="popover"] div[role="listbox"] {
-    max-height: 40vh !important;
+    max-height: 20vh !important;
     overflow-y: auto !important;
-}
-/* The uploaded-files list inside its expander — one row per file, so a large upload batch
-   would otherwise stretch the sidebar arbitrarily far. */
-[data-testid="stSidebarUserContent"] [data-testid="stExpanderDetails"] {
-    max-height: 30vh;
-    overflow-y: auto;
 }
 </style>
 """
