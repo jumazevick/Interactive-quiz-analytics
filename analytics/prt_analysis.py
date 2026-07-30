@@ -3,6 +3,10 @@ from __future__ import annotations
 import re
 
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+
+from analytics.ui_theme import pass_fail_scale
 
 
 # PRT names are author-defined in STACK (default "prt1"/"prt2", but Moodle exports
@@ -135,3 +139,41 @@ def build_prt_pass_heatmap(
             heatmap_df.loc[without_prt] = float("nan")
 
     return heatmap_df
+
+
+def build_prt_pass_heatmap_figure(heatmap_df: pd.DataFrame, colorblind_mode: bool) -> go.Figure:
+    """The PRT Pass Heatmap figure, shared by the on-screen page and the PDF report so the
+    two can never drift out of sync.
+
+    Two things are pinned rather than left to Plotly's per-figure autoscaling:
+
+    - `zmin=0, zmax=100`: pass rate is always a percentage, but `px.imshow` otherwise
+      scales the colour range to the min/max *actually present* in that one heatmap. A
+      quiz where every question passes 40-60% of the time would then paint 40% red and 60%
+      green — the same colour as 0% and 100% would get on an easier quiz. Pinning the range
+      to the full 0-100 domain makes a given pass rate mean the same colour everywhere.
+    - the axis ranges: left to autorange, Plotly pads a categorical axis a bit beyond the
+      data, and that padding shows through as a border in whatever `plot_bgcolor` is set to
+      (grey, so `NO_PRT_CELL_COLOR`'s no-PRT cells read as intentional). Setting the range
+      to exactly `[-0.5, n-0.5]` per axis removes that padding, so the grey shows only where
+      a cell is genuinely missing data — not as a frame around the whole chart.
+    """
+    fig = px.imshow(
+        heatmap_df,
+        labels=dict(x="PRT", y="Question", color="Pass %"),
+        color_continuous_scale=pass_fail_scale(colorblind_mode),
+        zmin=0,
+        zmax=100,
+    )
+    fig.update_xaxes(
+        tickmode="array", tickvals=list(range(len(heatmap_df.columns))), ticktext=[str(c) for c in heatmap_df.columns],
+        range=[-0.5, len(heatmap_df.columns) - 0.5],
+    )
+    fig.update_yaxes(
+        tickmode="array", tickvals=list(range(len(heatmap_df.index))), ticktext=[str(r) for r in heatmap_df.index],
+        range=[-0.5, len(heatmap_df.index) - 0.5],
+    )
+    # Questions with no PRT are NaN, which Plotly draws as transparent — so the plot
+    # background is what colours them.
+    fig.update_layout(title="PRT Pass Heatmap", template="plotly", plot_bgcolor=NO_PRT_CELL_COLOR)
+    return fig

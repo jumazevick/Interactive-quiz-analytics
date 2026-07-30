@@ -13,7 +13,7 @@ from analytics.prt_transitions import (
     count_question_parts,
 )
 from analytics.parser import get_attempt_pools
-from analytics.prt_analysis import NO_PRT_CELL_COLOR, build_prt_pass_heatmap
+from analytics.prt_analysis import build_prt_pass_heatmap, build_prt_pass_heatmap_figure
 from analytics.question_analytics import build_question_analytics
 from analytics.question_details import build_error_drilldown
 from analytics.quiz_metrics import (
@@ -29,7 +29,7 @@ from analytics.solution_distance import (
     build_prt_distance_3d_figure,
     build_ted_distance_3d_figure,
 )
-from analytics.ui_theme import humanize_columns, pass_fail_scale, qualitative_colors
+from analytics.ui_theme import humanize_columns, qualitative_colors
 
 # The canonical module list for each of the three analysis sections, in report order.
 # One list per section, used both for the PDF panel's multiselects and to gate the
@@ -184,16 +184,7 @@ def build_question_pdf_sections(
 
             heatmap_df = build_prt_pass_heatmap(q_prt_pass_rates, q_order, quiz_analytics["prt_frame"])
             if not heatmap_df.empty and len(heatmap_df.columns):
-                fig3 = px.imshow(
-                    heatmap_df,
-                    labels=dict(x="PRT", y="Question", color="Pass %"),
-                    color_continuous_scale=pass_fail_scale(colorblind_mode),
-                )
-                fig3.update_xaxes(tickmode="array", tickvals=list(range(len(heatmap_df.columns))), ticktext=[str(c) for c in heatmap_df.columns])
-                fig3.update_yaxes(tickmode="array", tickvals=list(range(len(heatmap_df.index))), ticktext=[str(r) for r in heatmap_df.index])
-                # Questions with no PRT stay NaN and show through as the plot background,
-                # rather than being filled with a misleading 0% (red on the pass/fail scale).
-                fig3.update_layout(title="PRT Pass Heatmap", template="plotly", plot_bgcolor=NO_PRT_CELL_COLOR)
+                fig3 = build_prt_pass_heatmap_figure(heatmap_df, colorblind_mode)
                 response_charts.append({"title": "PRT Pass Heatmap", "figure": fig3})
 
         sections.append({
