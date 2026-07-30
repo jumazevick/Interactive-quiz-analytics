@@ -54,19 +54,69 @@ st.caption(
 uploaded_files, anonymize_data = render_options_panel()
 
 quiz_metadata, response_df, quiz_names = load_shared_response_df(uploaded_files, anonymize_data)
-selected_quiz_name = None
-
-if quiz_names:
-    # Provisional default; the real selector is rendered in the main pane below, next to
-    # the question and part selectors. Keeping it out of the sidebar is what stops a long
-    # list of uploaded quizzes from opening its dropdown near the bottom of the window
-    # where BaseWeb pushes the lower entries off screen and out of reach.
-    selected_quiz_name = quiz_names[0]
 
 
 def _q_num(q_name: str) -> int:
     m = re.search(r"\d+", str(q_name))
     return int(m.group(0)) if m else 0
+
+
+# --- Sidebar: Solution Process Visualization scope, then its section toggles — the same
+# layout the Question Analysis and Quiz Analysis sidebars use. The three scope selectors
+# are chained (a quiz decides which questions exist, a question decides how many parts),
+# so each one is only rendered once the previous one's value is known. ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("🧭 Solution Process Visualization")
+st.sidebar.caption("Applies to the single quiz, question and part selected below")
+
+selected_quiz_name = None
+selected_question = None
+selected_part = 1
+part_count = 1
+pool_a_df = pd.DataFrame()
+question_order: list[str] = []
+
+if quiz_names and not response_df.empty:
+    selected_quiz_name = st.sidebar.selectbox("Select Quiz", quiz_names, index=0)
+    selected_df = response_df[response_df["quiz_name"] == selected_quiz_name].copy()
+    pool_a_df, _ = get_attempt_pools(selected_df)
+    question_order = sorted(pool_a_df["question"].unique(), key=_q_num)
+
+    if question_order:
+        selected_question = st.sidebar.selectbox("Select Question", question_order, index=0)
+        # A STACK question can be split into several parts, one PRT each (prt1, prt2, ...).
+        # Each part is scored and classified independently, so every chart on this page is
+        # scoped to one part at a time rather than silently reporting on part 1 alone.
+        part_count = count_question_parts(pool_a_df, selected_question)
+        selected_part = st.sidebar.selectbox(
+            "Select Part",
+            list(range(1, part_count + 1)),
+            index=0,
+            format_func=lambda p: f"Part {p} of {part_count}",
+            help="This question's PRT parts (prt1, prt2, ...). Every graph on the page is scoped to the selected part.",
+            disabled=part_count == 1,
+        )
+
+_SPV_SECTION_KEYS = [
+    "show_spv_student_graph", "show_spv_aggregate_graph",
+    "show_spv_network_features", "show_spv_prt_3d", "show_spv_ted_3d",
+]
+spv_select_col, spv_deselect_col = st.sidebar.columns(2)
+# Setting session_state here, before the checkboxes below are instantiated in this same
+# script run, is what makes the new value take effect immediately — a checkbox's `value=`
+# argument is only its default the very first time a key is seen.
+if spv_select_col.button("Select All", key="spv_select_all", use_container_width=True):
+    for _key in _SPV_SECTION_KEYS:
+        st.session_state[_key] = True
+if spv_deselect_col.button("Deselect All", key="spv_deselect_all", use_container_width=True):
+    for _key in _SPV_SECTION_KEYS:
+        st.session_state[_key] = False
+
+show_student_graph = st.sidebar.checkbox("1. Single-Student Transition Graph", value=True, key="show_spv_student_graph")
+show_aggregate_graph = st.sidebar.checkbox("2. Class-Wide Transition Graph", value=True, key="show_spv_aggregate_graph")
+show_network_features = st.sidebar.checkbox("3. Network Features per Node", value=True, key="show_spv_network_features")
+show_prt_3d = st.sidebar.checkbox("4. PRT-Distance 3D Chart", value=True, key="show_spv_prt_3d")
+show_ted_3d = st.sidebar.checkbox("5. Tree Edit Distance 3D Chart", value=True, key="show_spv_ted_3d")
 
 
 if not uploaded_files:
@@ -98,176 +148,168 @@ if not uploaded_files:
         )
 elif response_df.empty:
     st.info("No usable question rows were found in the uploaded files.")
+elif not question_order:
+    st.info("No questions found for this quiz.")
 else:
-    # Quiz / question / part are chosen together here in the main pane rather than in the
-    # sidebar. `st.columns` hands back containers that can be written to in any order, so
-    # each selector is filled in only once the previous one's value is known.
-    quiz_col, question_col, part_col = st.columns(3)
-
-    with quiz_col:
-        selected_quiz_name = st.selectbox("Select Quiz", quiz_names, index=0)
-
-    selected_df = response_df[response_df["quiz_name"] == selected_quiz_name].copy()
-    pool_a_df, _ = get_attempt_pools(selected_df)
-
-    question_order = sorted(pool_a_df["question"].unique(), key=_q_num)
-    if not question_order:
-        st.info("No questions found for this quiz.")
-        st.stop()
-
-    with question_col:
-        selected_question = st.selectbox("Select Question", question_order, index=0)
-
-    # A STACK question can be split into several parts, one PRT each (prt1, prt2, ...).
-    # Each part is scored and classified independently, so every chart on this page is
-    # scoped to one part at a time rather than silently reporting on part 1 alone.
-    part_count = count_question_parts(pool_a_df, selected_question)
-    with part_col:
-        selected_part = st.selectbox(
-            "Select Part",
-            list(range(1, part_count + 1)),
-            index=0,
-            format_func=lambda p: f"Part {p} of {part_count}",
-            help="This question's PRT parts (prt1, prt2, ...). Every graph below is scoped to the selected part.",
-            disabled=part_count == 1,
-        )
-    if part_count == 1:
-        st.caption("This question has a single part.")
+    st.caption(
+        f"Showing **{selected_quiz_name}** — {selected_question}, "
+        + (f"part {selected_part} of {part_count}" if part_count > 1 else "single part")
+        + ". Change the quiz, question or part in the sidebar."
+    )
 
     aggregate_fig = None
+    prt_fig = None
+    ted_fig = None
     network_features = pd.DataFrame()
     network_feature_figs: list[dict] = []
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    with st.container(border=True):
-        st.subheader(f"1. Solution Process Transition Graphs — Part {selected_part}")
-        st.caption(
-            "**c** = full marks on this part; a numbered node is the classified wrong "
-            "answer the part's PRT matched (PRT node 2 → **1**, node 3 → **2**, and so "
-            "on); **0** = an unclassified wrong answer, meaning the response fell "
-            "through every node without matching any of them, or was blank/invalid."
-        )
-
-        question_rows = pool_a_df[pool_a_df["question"] == selected_question]
-        grade_lookup = question_rows.groupby("student_id")["overall_grade"].max().reset_index()
-        attempts_lookup = question_rows.groupby("student_id").size().rename("attempts").reset_index()
-
-        roster = (
-            question_rows[["student_id", "student_name"]]
-            .drop_duplicates()
-            .merge(grade_lookup, on="student_id", how="left")
-            .merge(attempts_lookup, on="student_id", how="left")
-            .sort_values(by="student_name")
-            .reset_index(drop=True)
-        )
-        roster["overall_grade"] = roster["overall_grade"].round(2)
-        roster_display = roster.rename(columns={
-            "student_name": "Student Name",
-            "overall_grade": "Overall Grade",
-            "attempts": "Attempts on this Question",
-        })[["Student Name", "Overall Grade", "Attempts on this Question"]]
-
-        st.write("**Select a student** to see their individual solution process:")
-        roster_event = st.dataframe(
-            roster_display,
-            use_container_width=True,
-            hide_index=True,
-            on_select="rerun",
-            selection_mode="single-row",
-            key="solution_process_roster",
-        )
-
-        selected_rows = roster_event.selection.rows if roster_event and roster_event.selection else []
-        if selected_rows:
-            selected_row = roster.iloc[selected_rows[0]]
-            selected_student_id = selected_row["student_id"]
-            selected_student_name = selected_row["student_name"]
-            seq = build_student_node_sequence(pool_a_df, selected_question, selected_student_id, selected_part)
-            st.write(f"**{selected_student_name}** — {len(seq)} attempt(s) on {selected_question}, part {selected_part}")
-            if len(seq) < 2:
-                st.info("This student has only one recorded attempt at this question — no transition to show.")
-            else:
-                student_nodes = seq["node"].tolist()
-                student_edges = Counter(build_transition_pairs(student_nodes))
-                student_fig = build_transition_graph_figure(
-                    student_nodes,
-                    student_edges,
-                    colorblind_mode=colorblind_mode,
-                    title=f"{selected_student_name}'s Answer Transitions — {selected_question} (part {selected_part})",
-                )
-                st.plotly_chart(student_fig, use_container_width=True, key="single_student_graph")
-        else:
-            st.caption("Click a row above to see that student's individual transition graph.")
-
+    if show_student_graph or show_aggregate_graph or show_network_features:
         st.markdown("<br>", unsafe_allow_html=True)
-        st.write(f"**Class-wide aggregate transition graph — {selected_question}, part {selected_part}**")
-        st.caption("Edge thickness and color both scale with how many students made that transition (green = few, red = many).")
-        agg_nodes, agg_edges = build_aggregate_graph(pool_a_df, selected_question, selected_part)
-        if not agg_edges:
-            st.info("Not enough multi-attempt data for this question to build an aggregate graph.")
-        else:
-            aggregate_fig = build_transition_graph_figure(
-                agg_nodes, agg_edges, colorblind_mode=colorblind_mode,
-                title=f"Class-wide Answer Transitions — {selected_question} (part {selected_part})",
-            )
-            st.plotly_chart(aggregate_fig, use_container_width=True, key="aggregate_graph")
-
-            network_features = compute_network_features(agg_nodes, agg_edges)
-            st.write("**Network features per node**")
-            st.dataframe(humanize_columns(network_features), use_container_width=True, hide_index=True)
-
-            feature_cols = st.columns(3)
-            feature_specs = [
-                ("in_degree_centrality", "In-Degree Centrality"),
-                ("out_degree_centrality", "Out-Degree Centrality"),
-                ("degree_centrality", "Degree Centrality"),
-            ]
-            # network_features["node"] is already in node_sort_key order ("0", "1", ...,
-            # "c"); node values like "0"/"1"/"2" otherwise get silently coerced onto a
-            # numeric axis by Plotly (dropping the non-numeric "c" bar entirely and
-            # showing float tick marks in between), so the axis is forced categorical
-            # in that exact order instead.
-            node_order = network_features["node"].tolist()
-            for col, (metric, label) in zip(feature_cols, feature_specs):
-                feature_fig = px.bar(
-                    network_features, x="node", y=metric,
-                    category_orders={"node": node_order},
-                    labels={"node": "Node", metric: label},
-                )
-                feature_fig.update_traces(marker_color="#3b82f6")
-                feature_fig.update_xaxes(type="category")
-                feature_fig.update_layout(title=label, showlegend=False)
-                col.plotly_chart(feature_fig, use_container_width=True, key=f"network_feature_{metric}")
-                network_feature_figs.append({"title": label, "figure": feature_fig})
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    with st.container(border=True):
-        st.subheader(f"2. 3D Solution Process Distance Visualizations — Part {selected_part}")
-        st.caption(
-            "Each line is one student's trajectory across their attempts at this part. "
-            "Every point is colored by its own distance from the correct answer — white "
-            "at 0, neon red at 1, then running up through orange, yellow, green, and "
-            "blue to black at the largest distance seen. Students are ordered along the "
-            "**Students** axis by their first attempt's distance, then by their second "
-            "attempt within each of those groups, and so on — so a student correct on "
-            "the first try sits closest to the origin as a white dot. The PRT distance "
-            "is a heuristic generalization of a teacher-authored distance table (Takada "
-            "et al., EDM 2025) — treat it as relative, not an absolute or calibrated "
-            "measure."
-        )
-
-        prt_fig = build_prt_distance_3d_figure(pool_a_df, selected_question, selected_part)
-        st.plotly_chart(prt_fig, use_container_width=True, key="prt_distance_3d")
-
-        ted_subset = compute_ted_distance_series(pool_a_df, selected_question, selected_part)
-        unparsed = int(ted_subset["ted_distance"].isna().sum())
-        if unparsed:
+        with st.container(border=True):
+            st.subheader(f"1. Solution Process Transition Graphs — Part {selected_part}")
             st.caption(
-                f"⚠️ {unparsed} response(s) for this part couldn't be parsed as a "
-                "math expression and are excluded from the Tree Edit Distance chart below."
+                "**c** = full marks on this part; a numbered node is the classified wrong "
+                "answer the part's PRT matched (PRT node 2 → **1**, node 3 → **2**, and so "
+                "on); **0** = an unclassified wrong answer, meaning the response fell "
+                "through every node without matching any of them, or was blank/invalid."
             )
-        ted_fig = build_ted_distance_3d_figure(pool_a_df, selected_question, selected_part)
-        st.plotly_chart(ted_fig, use_container_width=True, key="ted_distance_3d")
+
+            if show_student_graph:
+                question_rows = pool_a_df[pool_a_df["question"] == selected_question]
+                grade_lookup = question_rows.groupby("student_id")["overall_grade"].max().reset_index()
+                attempts_lookup = question_rows.groupby("student_id").size().rename("attempts").reset_index()
+
+                roster = (
+                    question_rows[["student_id", "student_name"]]
+                    .drop_duplicates()
+                    .merge(grade_lookup, on="student_id", how="left")
+                    .merge(attempts_lookup, on="student_id", how="left")
+                    .sort_values(by="student_name")
+                    .reset_index(drop=True)
+                )
+                roster["overall_grade"] = roster["overall_grade"].round(2)
+                roster_display = roster.rename(columns={
+                    "student_name": "Student Name",
+                    "overall_grade": "Overall Grade",
+                    "attempts": "Attempts on this Question",
+                })[["Student Name", "Overall Grade", "Attempts on this Question"]]
+
+                st.write("**Select a student** to see their individual solution process:")
+                roster_event = st.dataframe(
+                    roster_display,
+                    use_container_width=True,
+                    hide_index=True,
+                    on_select="rerun",
+                    selection_mode="single-row",
+                    key="solution_process_roster",
+                )
+
+                selected_rows = roster_event.selection.rows if roster_event and roster_event.selection else []
+                if selected_rows:
+                    selected_row = roster.iloc[selected_rows[0]]
+                    selected_student_id = selected_row["student_id"]
+                    selected_student_name = selected_row["student_name"]
+                    seq = build_student_node_sequence(pool_a_df, selected_question, selected_student_id, selected_part)
+                    st.write(f"**{selected_student_name}** — {len(seq)} attempt(s) on {selected_question}, part {selected_part}")
+                    if len(seq) < 2:
+                        st.info("This student has only one recorded attempt at this question — no transition to show.")
+                    else:
+                        student_nodes = seq["node"].tolist()
+                        student_edges = Counter(build_transition_pairs(student_nodes))
+                        student_fig = build_transition_graph_figure(
+                            student_nodes,
+                            student_edges,
+                            colorblind_mode=colorblind_mode,
+                            title=f"{selected_student_name}'s Answer Transitions — {selected_question} (part {selected_part})",
+                        )
+                        st.plotly_chart(student_fig, use_container_width=True, key="single_student_graph")
+                else:
+                    st.caption("Click a row above to see that student's individual transition graph.")
+
+            # Built whenever either of the two blocks below is on: the network features are
+            # computed from this same graph, so they can be shown with the graph itself
+            # hidden.
+            agg_nodes, agg_edges = ([], {})
+            if show_aggregate_graph or show_network_features:
+                agg_nodes, agg_edges = build_aggregate_graph(pool_a_df, selected_question, selected_part)
+
+            if show_aggregate_graph:
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.write(f"**Class-wide aggregate transition graph — {selected_question}, part {selected_part}**")
+                st.caption("Edge thickness and color both scale with how many students made that transition (green = few, red = many).")
+                if not agg_edges:
+                    st.info("Not enough multi-attempt data for this question to build an aggregate graph.")
+                else:
+                    aggregate_fig = build_transition_graph_figure(
+                        agg_nodes, agg_edges, colorblind_mode=colorblind_mode,
+                        title=f"Class-wide Answer Transitions — {selected_question} (part {selected_part})",
+                    )
+                    st.plotly_chart(aggregate_fig, use_container_width=True, key="aggregate_graph")
+
+            if show_network_features:
+                if not agg_edges:
+                    st.info("Not enough multi-attempt data for this question to compute network features.")
+                else:
+                    network_features = compute_network_features(agg_nodes, agg_edges)
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.write("**Network features per node**")
+                    st.dataframe(humanize_columns(network_features), use_container_width=True, hide_index=True)
+
+                    feature_cols = st.columns(3)
+                    feature_specs = [
+                        ("in_degree_centrality", "In-Degree Centrality"),
+                        ("out_degree_centrality", "Out-Degree Centrality"),
+                        ("degree_centrality", "Degree Centrality"),
+                    ]
+                    # network_features["node"] is already in node_sort_key order ("0", "1",
+                    # ..., "c"); node values like "0"/"1"/"2" otherwise get silently coerced
+                    # onto a numeric axis by Plotly (dropping the non-numeric "c" bar
+                    # entirely and showing float tick marks in between), so the axis is
+                    # forced categorical in that exact order instead.
+                    node_order = network_features["node"].tolist()
+                    for col, (metric, label) in zip(feature_cols, feature_specs):
+                        feature_fig = px.bar(
+                            network_features, x="node", y=metric,
+                            category_orders={"node": node_order},
+                            labels={"node": "Node", metric: label},
+                        )
+                        feature_fig.update_traces(marker_color="#3b82f6")
+                        feature_fig.update_xaxes(type="category")
+                        feature_fig.update_layout(title=label, showlegend=False)
+                        col.plotly_chart(feature_fig, use_container_width=True, key=f"network_feature_{metric}")
+                        network_feature_figs.append({"title": label, "figure": feature_fig})
+
+    if show_prt_3d or show_ted_3d:
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.subheader(f"2. 3D Solution Process Distance Visualizations — Part {selected_part}")
+            st.caption(
+                "Each line is one student's trajectory across their attempts at this part. "
+                "Every point is colored by its own distance from the correct answer — white "
+                "at 0, neon red at 1, then running up through orange, yellow, green, and "
+                "blue to black at the largest distance seen. Students are ordered along the "
+                "**Students** axis by their first attempt's distance, then by their second "
+                "attempt within each of those groups, and so on — so a student correct on "
+                "the first try sits closest to the origin as a white dot. The PRT distance "
+                "is a heuristic generalization of a teacher-authored distance table (Takada "
+                "et al., EDM 2025) — treat it as relative, not an absolute or calibrated "
+                "measure."
+            )
+
+            if show_prt_3d:
+                prt_fig = build_prt_distance_3d_figure(pool_a_df, selected_question, selected_part)
+                st.plotly_chart(prt_fig, use_container_width=True, key="prt_distance_3d")
+
+            if show_ted_3d:
+                ted_subset = compute_ted_distance_series(pool_a_df, selected_question, selected_part)
+                unparsed = int(ted_subset["ted_distance"].isna().sum())
+                if unparsed:
+                    st.caption(
+                        f"⚠️ {unparsed} response(s) for this part couldn't be parsed as a "
+                        "math expression and are excluded from the Tree Edit Distance chart below."
+                    )
+                ted_fig = build_ted_distance_3d_figure(pool_a_df, selected_question, selected_part)
+                st.plotly_chart(ted_fig, use_container_width=True, key="ted_distance_3d")
 
     st.markdown("<br>", unsafe_allow_html=True)
     with st.container(border=True):
@@ -286,20 +328,24 @@ else:
                 "caption": "Aggregated solution-process transition graph",
                 "charts": [{"title": "Transition Graph", "figure": aggregate_fig}],
             })
+        if network_feature_figs:
             pdf_sections.append({
                 "title": f"Network Features — {part_label}",
                 "caption": "In-degree / out-degree / degree centrality per node",
                 "df": humanize_columns(network_features),
                 "charts": network_feature_figs,
             })
-        pdf_sections.append({
-            "title": f"3D Solution Process Distance — {part_label}",
-            "caption": "PRT distance and Tree Edit Distance trajectories, colored by each point's own distance from the correct answer",
-            "charts": [
-                {"title": "PRT Distance", "figure": prt_fig},
-                {"title": "Tree Edit Distance", "figure": ted_fig},
-            ],
-        })
+        distance_charts = []
+        if prt_fig is not None:
+            distance_charts.append({"title": "PRT Distance", "figure": prt_fig})
+        if ted_fig is not None:
+            distance_charts.append({"title": "Tree Edit Distance", "figure": ted_fig})
+        if distance_charts:
+            pdf_sections.append({
+                "title": f"3D Solution Process Distance — {part_label}",
+                "caption": "PRT distance and Tree Edit Distance trajectories, colored by each point's own distance from the correct answer",
+                "charts": distance_charts,
+            })
 
         pdf_bytes = generate_pdf_report(
             title="Solution Process Visualization Report",
