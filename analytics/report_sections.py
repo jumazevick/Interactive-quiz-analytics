@@ -13,6 +13,7 @@ from analytics.prt_transitions import (
     count_question_parts,
 )
 from analytics.parser import get_attempt_pools
+from analytics.prt_analysis import NO_PRT_CELL_COLOR, build_prt_pass_heatmap
 from analytics.question_analytics import build_question_analytics
 from analytics.question_details import build_error_drilldown
 from analytics.quiz_metrics import (
@@ -50,12 +51,12 @@ SPV_MODULES = [
 ]
 
 QUIZ_MODULES = [
-    "8. Merged List of Users and Files",
-    "9. Summary of Quiz Stats",
-    "10. Quiz Grade Distribution (Box Plot)",
-    "11. Engagement Over Time",
-    "12. Scatter Plot: Attempts vs Grades",
-    "13. Line Graph of Various Metrics",
+    "1. Merged List of Users and Files",
+    "2. Summary of Quiz Stats",
+    "3. Quiz Grade Distribution (Box Plot)",
+    "4. Engagement Over Time",
+    "5. Scatter Plot: Attempts vs Grades",
+    "6. Line Graph of Various Metrics",
 ]
 
 # The Quiz Analysis sidebar lets the reader narrow these three on-screen; the report
@@ -181,11 +182,8 @@ def build_question_pdf_sections(
             fig2.update_layout(title="Valid vs Invalid Attempts (All Attempts)", template="plotly")
             response_charts.append({"title": "Valid vs Invalid Attempts (All Attempts)", "figure": fig2})
 
-            if not q_prt_pass_rates.empty:
-                heatmap_df = q_prt_pass_rates.pivot_table(
-                    index="question", columns="prt_name", values="pass_rate",
-                    aggfunc="first", fill_value=0, dropna=False,
-                )
+            heatmap_df = build_prt_pass_heatmap(q_prt_pass_rates, q_order, quiz_analytics["prt_frame"])
+            if not heatmap_df.empty and len(heatmap_df.columns):
                 fig3 = px.imshow(
                     heatmap_df,
                     labels=dict(x="PRT", y="Question", color="Pass %"),
@@ -193,7 +191,9 @@ def build_question_pdf_sections(
                 )
                 fig3.update_xaxes(tickmode="array", tickvals=list(range(len(heatmap_df.columns))), ticktext=[str(c) for c in heatmap_df.columns])
                 fig3.update_yaxes(tickmode="array", tickvals=list(range(len(heatmap_df.index))), ticktext=[str(r) for r in heatmap_df.index])
-                fig3.update_layout(title="PRT Pass Heatmap", template="plotly")
+                # Questions with no PRT stay NaN and show through as the plot background,
+                # rather than being filled with a misleading 0% (red on the pass/fail scale).
+                fig3.update_layout(title="PRT Pass Heatmap", template="plotly", plot_bgcolor=NO_PRT_CELL_COLOR)
                 response_charts.append({"title": "PRT Pass Heatmap", "figure": fig3})
 
         sections.append({
@@ -347,56 +347,56 @@ def build_quiz_pdf_sections(
 
     sections: list[dict] = []
 
-    if "8. Merged List of Users and Files" in selected_sections:
+    if "1. Merged List of Users and Files" in selected_sections:
         sections.append({
-            "title": "8. Merged List of Users and Files",
+            "title": "1. Merged List of Users and Files",
             "caption": "All parsed quiz attempt rows (combined across uploaded files)",
             "df": humanize_columns(attempt_frame),
         })
 
-    if "9. Summary of Quiz Stats" in selected_sections:
+    if "2. Summary of Quiz Stats" in selected_sections:
         sections.append({
-            "title": "9. Summary of Quiz Stats",
+            "title": "2. Summary of Quiz Stats",
             "caption": "Aggregated stats per quiz",
             "df": humanize_columns(compute_quiz_stats(attempt_frame, _DEFAULT_QUIZ_STATS)),
         })
 
-    if "10. Quiz Grade Distribution (Box Plot)" in selected_sections:
+    if "3. Quiz Grade Distribution (Box Plot)" in selected_sections:
         fig = build_boxplot_figure(attempt_frame, colorblind_mode=colorblind_mode)
         fig.update_layout(template="plotly")
         sections.append({
-            "title": "10. Quiz Grade Distribution (Box Plot)",
+            "title": "3. Quiz Grade Distribution (Box Plot)",
             "caption": "Spread of grades per quiz, with mean grade overlay",
             "charts": [{"title": "Grade Distribution", "figure": fig}],
         })
 
-    if "11. Engagement Over Time" in selected_sections:
+    if "4. Engagement Over Time" in selected_sections:
         fig = build_engagement_figure(attempt_frame, colorblind_mode=colorblind_mode)
         if fig is not None:
             fig.update_layout(template="plotly")
             sections.append({
-                "title": "11. Engagement Over Time",
+                "title": "4. Engagement Over Time",
                 "caption": "Density of quiz attempt start times per quiz",
                 "charts": [{"title": "Engagement Over Time", "figure": fig}],
             })
 
-    if "12. Scatter Plot: Attempts vs Grades" in selected_sections:
+    if "5. Scatter Plot: Attempts vs Grades" in selected_sections:
         result = build_scatter_figure(attempt_frame, _DEFAULT_GRADE_TYPE, colorblind_mode=colorblind_mode)
         if result is not None:
             fig, correlation, y_label, _ = result
             fig.update_layout(template="plotly")
             sections.append({
-                "title": "12. Scatter Plot: Attempts vs Grades",
+                "title": "5. Scatter Plot: Attempts vs Grades",
                 "caption": f"Correlation between number of attempts and quiz {y_label}: r = {correlation:.2f}",
                 "charts": [{"title": "Attempts vs Grades", "figure": fig}],
             })
 
-    if "13. Line Graph of Various Metrics" in selected_sections:
+    if "6. Line Graph of Various Metrics" in selected_sections:
         trend_data = build_metric_trend_data(attempt_frame, _DEFAULT_QUIZ_METRICS)
         fig = build_line_graph_figure(trend_data, colorblind_mode=colorblind_mode)
         fig.update_layout(template="plotly")
         sections.append({
-            "title": "13. Line Graph of Various Metrics",
+            "title": "6. Line Graph of Various Metrics",
             "caption": "Trend of selected metrics across quizzes",
             "charts": [{"title": "Metrics by Quiz", "figure": fig}],
         })

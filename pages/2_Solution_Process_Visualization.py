@@ -124,9 +124,8 @@ if not uploaded_files:
         st.markdown("### 🧭 Solution Process Visualization")
         st.write(
             "Upload a Moodle **Responses** export (with the Question text / Response / "
-            "Right answer display options enabled) via the sidebar. Files already "
-            "uploaded on the Question & Quiz Analysis page are picked up here "
-            "automatically."
+            "Right answer display options enabled) via the sidebar. Files uploaded on any "
+            "other page are picked up here automatically. After upload, you can:"
         )
         st.markdown(
             """
@@ -146,6 +145,54 @@ if not uploaded_files:
             "the same student in the export) to show a meaningful trajectory — a "
             "single-attempt export will only show single-point trajectories."
         )
+
+        with st.container(border=True):
+            st.markdown("<h5 style='margin-top:0;'>⚙️ Moodle Export Steps</h5>", unsafe_allow_html=True)
+            st.markdown(
+                """
+                1️⃣ **Navigate to your target Quiz** in Moodle.<br>
+                2️⃣ Open **Quiz results**.<br>
+                3️⃣ Select **Responses report** from the Moodle report dropdown menu.<br>
+                4️⃣ Under **Display options**, check the boxes for: **Question text**, **Response**, and **Right answer**.<br>
+                5️⃣ Click **Display report**.<br>
+                6️⃣ Download the generated report as a **CSV** or **XLSX** file.<br>
+                7️⃣ Verify that your file contains the required structure below.
+                """,
+                unsafe_allow_html=True,
+            )
+
+        with st.container(border=True):
+            st.markdown("### 📦 Expected Data Format (Columns from Left to Right)")
+            st.write("Your uploaded CSV or XLSX file must contain column headers ordered sequentially across the table:")
+            st.markdown(
+                """
+                **1. Columns 1 to 8 (Student & Quiz Metadata):**
+                `Last name` | `First name` | `Email address` | `State` | `Started on` | `Completed` | `Time taken` | `Grade/10.00`
+
+                **2. Columns 9+ (Repeating Question Triplets):**
+                - `Question 1` | `Response 1` | `Right answer 1`
+                - `Question 2` | `Response 2` | `Right answer 2`
+                - ...
+                - `Question N` | `Response N` | `Right answer N`
+
+                A few common alternate names are also recognized automatically, so exports using
+                these instead will still work: `Username` (instead of `Email address`), `Status`
+                (instead of `State`), `Started` (instead of `Started on`), and `Duration` (instead
+                of `Time taken`).
+                """
+            )
+
+        with st.container(border=True):
+            c_text, c_btn = st.columns([3, 1])
+            with c_text:
+                st.markdown("**Want to try some sample data?**")
+                st.write("Download pre-configured anonymized response reports to see the app in action or how your data should look.")
+            with c_btn:
+                st.link_button(
+                    "📥 Sample Quiz Files",
+                    url="https://drive.google.com/drive/folders/1r7c1asoMFwaLORaQVKisJk7xpWazzC5I?usp=sharing",
+                    use_container_width=True,
+                )
 elif response_df.empty:
     st.info("No usable question rows were found in the uploaded files.")
 elif not question_order:

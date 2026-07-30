@@ -70,8 +70,8 @@ if quiz_deselect_col.button("Deselect All", key="quiz_deselect_all", use_contain
     for _key in _QUIZ_SECTION_KEYS:
         st.session_state[_key] = False
 
-show_quiz_merged = st.sidebar.checkbox("8. Merged List of Users and Files", key="show_quiz_merged")
-show_quiz_summary = st.sidebar.checkbox("9. Summary of Quiz Stats", key="show_quiz_summary")
+show_quiz_merged = st.sidebar.checkbox("1. Merged List of Users and Files", value=True, key="show_quiz_merged")
+show_quiz_summary = st.sidebar.checkbox("2. Summary of Quiz Stats", value=True, key="show_quiz_summary")
 selected_quiz_stats: list[str] = []
 if show_quiz_summary:
     selected_quiz_stats = st.sidebar.multiselect(
@@ -80,13 +80,13 @@ if show_quiz_summary:
         default=["student_count", "attempt_rate", "mean_grade", "grade_variance", "mean_highest_grade", "attempt_count"],
         format_func=humanize_column_name,
     )
-show_quiz_boxplot = st.sidebar.checkbox("10. Quiz Grade Distribution (Box Plot)", key="show_quiz_boxplot")
-show_quiz_engagement = st.sidebar.checkbox("11. Engagement Over Time", key="show_quiz_engagement")
-show_quiz_scatter = st.sidebar.checkbox("12. Scatter Plot: Attempts vs Grades", key="show_quiz_scatter")
+show_quiz_boxplot = st.sidebar.checkbox("3. Quiz Grade Distribution (Box Plot)", value=True, key="show_quiz_boxplot")
+show_quiz_engagement = st.sidebar.checkbox("4. Engagement Over Time", value=True, key="show_quiz_engagement")
+show_quiz_scatter = st.sidebar.checkbox("5. Scatter Plot: Attempts vs Grades", value=True, key="show_quiz_scatter")
 quiz_grade_type = "Average Grade"
 if show_quiz_scatter:
     quiz_grade_type = st.sidebar.radio("Select Grade Type", ("Highest Grade", "Average Grade", "Minimum Grade"))
-show_quiz_linegraph = st.sidebar.checkbox("13. Line Graph of Various Metrics", key="show_quiz_linegraph")
+show_quiz_linegraph = st.sidebar.checkbox("6. Line Graph of Various Metrics", value=True, key="show_quiz_linegraph")
 selected_quiz_metrics: list[str] = []
 if show_quiz_linegraph:
     selected_quiz_metrics = st.sidebar.multiselect(
@@ -107,13 +107,13 @@ if uploaded_files:
 
         if show_quiz_merged:
             with st.container(border=True):
-                st.subheader("8. Merged List of Users and Files")
+                st.subheader("1. Merged List of Users and Files")
                 st.caption("Combines every uploaded quiz file into one view. Each row is one attempt, with the student, quiz, and date.")
                 st.dataframe(humanize_columns(attempt_frame), use_container_width=True, hide_index=True)
 
         if show_quiz_summary:
             with st.container(border=True):
-                st.subheader("9. Summary of Quiz Stats")
+                st.subheader("2. Summary of Quiz Stats")
                 st.caption("Aggregated statistics per quiz, combined across all uploaded files.")
                 if not attempt_frame.empty:
                     quiz_stats_df = compute_quiz_stats(attempt_frame, selected_quiz_stats)
@@ -123,7 +123,7 @@ if uploaded_files:
 
         if show_quiz_boxplot:
             with st.container(border=True):
-                st.subheader("10. Quiz Grade Distribution (Box Plot)")
+                st.subheader("3. Quiz Grade Distribution (Box Plot)")
                 st.caption("Spread of grades per quiz, with mean grade overlay, combined across all uploaded files.")
                 if not attempt_frame.empty:
                     fig = build_boxplot_figure(attempt_frame, colorblind_mode=colorblind_mode)
@@ -134,7 +134,7 @@ if uploaded_files:
 
         if show_quiz_engagement:
             with st.container(border=True):
-                st.subheader("11. Engagement Over Time")
+                st.subheader("4. Engagement Over Time")
                 st.caption("Density of quiz attempt start times per quiz, combined across all uploaded files.")
                 if not attempt_frame.empty:
                     fig = build_engagement_figure(attempt_frame, colorblind_mode=colorblind_mode)
@@ -148,7 +148,7 @@ if uploaded_files:
 
         if show_quiz_scatter:
             with st.container(border=True):
-                st.subheader("12. Scatter Plot: Attempts vs Grades")
+                st.subheader("5. Scatter Plot: Attempts vs Grades")
                 st.caption("Correlation between number of attempts and grade outcome, combined across all uploaded files.")
                 if not attempt_frame.empty:
                     result = build_scatter_figure(attempt_frame, quiz_grade_type, colorblind_mode=colorblind_mode)
@@ -162,7 +162,7 @@ if uploaded_files:
 
         if show_quiz_linegraph:
             with st.container(border=True):
-                st.subheader("13. Line Graph of Various Metrics")
+                st.subheader("6. Line Graph of Various Metrics")
                 st.caption("Trend of selected metrics across quizzes, combined across all uploaded files.")
                 if not attempt_frame.empty:
                     if selected_quiz_metrics:
