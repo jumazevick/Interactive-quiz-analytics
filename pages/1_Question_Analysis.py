@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from analytics.latex_utils import clean_moodle_latex, extract_stack_answer_latex, maxima_expr_to_latex
+from analytics.latex_utils import clean_moodle_latex, extract_stack_answer_latex, maxima_expr_to_latex, split_stack_debug_dump
 from analytics.pdf_ui import render_pdf_report_panel
 from analytics.prt_analysis import build_prt_pass_heatmap, build_prt_pass_heatmap_figure
 from analytics.question_analytics import build_question_analytics
@@ -240,7 +240,16 @@ if uploaded_files:
                     # all) — showing cleaned-but-still-raw LaTeX there just displays the
                     # literal delimiters. Keep the collapsed title to the question number
                     # only; the full question text renders (as real math) once expanded.
-                    question_text = clean_moodle_latex(detail["question_text"])
+                    #
+                    # Some STACK questions leak their "question variables" CAS session
+                    # transcript into the exported question text (typically a randomized
+                    # instance that hit a CAS runtime error) — Maxima statement syntax,
+                    # not LaTeX, that breaks KaTeX rendering if it's fed through
+                    # unchanged. split_stack_debug_dump isolates the real question prompt
+                    # from that leaked tail; the tail itself is kept, just moved to an
+                    # optional debug expander below rather than rendered inline.
+                    question_prompt, debug_dump = split_stack_debug_dump(detail["question_text"])
+                    question_text = clean_moodle_latex(question_prompt)
                     # Right Answer often carries the same "Seed: ...; ansN: <expr> [tag]"
                     # diagnostic dump as Submitted Response for STACK questions, so it
                     # gets the same ansN-extraction treatment (falls back to plain LaTeX
@@ -250,6 +259,10 @@ if uploaded_files:
                     with st.expander(f"Question {_q_num(q)}"):
                         st.markdown(f"**Question:** {question_text}")
                         st.markdown(f"**Right Answer:** {right_answer_text}")
+                        if debug_dump:
+                            with st.expander("🔧 Raw STACK question-variable data (debug)"):
+                                st.caption("Leaked CAS session output from this question's randomization code — not part of the question itself.")
+                                st.code(debug_dump, language=None)
                         if drilldown.empty:
                             st.success("No incorrect or partial-credit responses for this question among best attempts.")
                         else:
