@@ -8,75 +8,17 @@ import streamlit as st
 
 from analytics.anonymize import anonymize_response_df
 from analytics.data_loader import load_quiz_data
-from analytics.difficulty import compute_difficulty_metrics
 from analytics.latex_utils import clean_moodle_latex, extract_stack_answer_latex, maxima_expr_to_latex
-from analytics.parser import (
-    build_grade_breakdown_rows,
-    build_response_rows,
-    detect_export_type,
-    get_attempt_pools,
-)
 from analytics.pdf_export import generate_pdf_report
-from analytics.prt_analysis import build_prt_frame, compute_prt_pass_rates
+from analytics.question_analytics import build_question_analytics
 from analytics.question_details import build_error_drilldown, build_question_detail
-from analytics.question_metrics import compute_question_metrics, compute_question_summary, compute_ranked_difficulty
-from analytics.quiz_metrics import (
-    build_boxplot_figure,
-    build_engagement_figure,
-    build_line_graph_figure,
-    build_metric_trend_data,
-    build_quiz_attempt_frame,
-    build_scatter_figure,
-    compute_quiz_stats,
-)
-from analytics.response_analysis import compute_repeated_wrong_answers, compute_response_outcomes
-from analytics.summary import build_export_summary
-from analytics.syntax_analysis import compute_syntax_analysis
-from analytics.ui_theme import humanize_column_name, humanize_columns, inject_global_styles, pass_fail_scale, qualitative_colors
+from analytics.ui_theme import humanize_columns, inject_global_styles, pass_fail_scale, qualitative_colors
 from analytics.upload_cache import clear_uploaded_files, get_uploader_key, sync_uploaded_files
 from analytics.validation import audit_question_data
 
 
-def build_question_analytics(response_df: pd.DataFrame, quiz_name: str) -> dict[str, object]:
-    if "question" not in response_df.columns:
-        export_type = detect_export_type(response_df)
-        if export_type == "grades_breakdown":
-            response_df = build_grade_breakdown_rows(response_df, quiz_name=quiz_name)
-        else:
-            response_df = build_response_rows(response_df, quiz_name=quiz_name)
-
-    pool_a_df, pool_b_df = get_attempt_pools(response_df)
-
-    question_metrics = compute_question_metrics(response_df)
-    prt_frame = build_prt_frame(pool_a_df)
-    question_summary = compute_question_summary(response_df, prt_frame)
-    response_outcomes = compute_response_outcomes(response_df)
-    difficulty_metrics = compute_difficulty_metrics(response_df)
-    syntax_analysis = compute_syntax_analysis(pool_a_df)
-    prt_pass_rates = compute_prt_pass_rates(prt_frame)
-    repeated_wrong_answers = compute_repeated_wrong_answers(response_df)
-    ranked_difficulty = compute_ranked_difficulty(question_metrics)
-    export_summary = build_export_summary(question_metrics, response_outcomes, difficulty_metrics, syntax_analysis, prt_pass_rates, repeated_wrong_answers)
-
-    return {
-        "question_metrics": question_metrics,
-        "question_summary": question_summary,
-        "response_outcomes": response_outcomes,
-        "difficulty_metrics": difficulty_metrics,
-        "syntax_analysis": syntax_analysis,
-        "prt_frame": prt_frame,
-        "prt_pass_rates": prt_pass_rates,
-        "repeated_wrong_answers": repeated_wrong_answers,
-        "ranked_difficulty": ranked_difficulty,
-        "export_summary": export_summary,
-        "quiz_name": quiz_name,
-        "pool_a_df": pool_a_df,
-        "pool_b_df": pool_b_df,
-    }
-
-
 st.set_page_config(
-    page_title="Question & Quiz Analysis",
+    page_title="Question Analysis",
     page_icon=":bar_chart:",
     layout="wide",
 )
@@ -87,7 +29,7 @@ inject_global_styles()
 # toggle next to the page title.
 title_col, colorblind_col = st.columns([5, 2])
 with title_col:
-    st.title("Question & Quiz Analysis")
+    st.title("Question Analysis")
 with colorblind_col:
     st.markdown("<div style='margin-top: 1.6rem;'></div>", unsafe_allow_html=True)
     colorblind_mode = st.toggle(
@@ -190,57 +132,6 @@ show_response = st.sidebar.checkbox("4. Question Response Distribution", value=T
 show_student = st.sidebar.checkbox("5. Student Performance by Question", value=True, key="show_student")
 show_metrics = st.sidebar.checkbox("6. Question Metrics", value=True, key="show_metrics")
 show_notes = st.sidebar.checkbox("7. Interpretation Notes", value=True, key="show_notes")
-
-# --- Sidebar: Quiz Analysis section — each sub-widget lives right under the
-# checkbox/section it configures, instead of being scattered wherever its section
-# happens to render in the main body. ---
-st.sidebar.markdown("---")
-st.sidebar.subheader("📈 Quiz Analysis")
-st.sidebar.caption("Combined across the quizzes selected below")
-quizzes_for_analysis = quiz_names
-if quiz_names:
-    quizzes_for_analysis = st.sidebar.multiselect(
-        "Select quizzes to include",
-        options=quiz_names,
-        default=quiz_names,
-    )
-_QUIZ_SECTION_KEYS = [
-    "show_quiz_merged", "show_quiz_summary", "show_quiz_boxplot",
-    "show_quiz_engagement", "show_quiz_scatter", "show_quiz_linegraph",
-]
-quiz_select_col, quiz_deselect_col = st.sidebar.columns(2)
-if quiz_select_col.button("Select All", key="quiz_select_all", use_container_width=True):
-    for _key in _QUIZ_SECTION_KEYS:
-        st.session_state[_key] = True
-if quiz_deselect_col.button("Deselect All", key="quiz_deselect_all", use_container_width=True):
-    for _key in _QUIZ_SECTION_KEYS:
-        st.session_state[_key] = False
-
-show_quiz_merged = st.sidebar.checkbox("8. Merged List of Users and Files", key="show_quiz_merged")
-show_quiz_summary = st.sidebar.checkbox("9. Summary of Quiz Stats", key="show_quiz_summary")
-selected_quiz_stats: list[str] = []
-if show_quiz_summary:
-    selected_quiz_stats = st.sidebar.multiselect(
-        "Select Statistics to Display",
-        ["student_count", "attempt_rate", "mean_grade", "grade_variance", "mean_highest_grade", "attempt_count"],
-        default=["student_count", "attempt_rate", "mean_grade", "grade_variance", "mean_highest_grade", "attempt_count"],
-        format_func=humanize_column_name,
-    )
-show_quiz_boxplot = st.sidebar.checkbox("10. Quiz Grade Distribution (Box Plot)", key="show_quiz_boxplot")
-show_quiz_engagement = st.sidebar.checkbox("11. Engagement Over Time", key="show_quiz_engagement")
-show_quiz_scatter = st.sidebar.checkbox("12. Scatter Plot: Attempts vs Grades", key="show_quiz_scatter")
-quiz_grade_type = "Average Grade"
-if show_quiz_scatter:
-    quiz_grade_type = st.sidebar.radio("Select Grade Type", ("Highest Grade", "Average Grade", "Minimum Grade"))
-show_quiz_linegraph = st.sidebar.checkbox("13. Line Graph of Various Metrics", key="show_quiz_linegraph")
-selected_quiz_metrics: list[str] = []
-if show_quiz_linegraph:
-    selected_quiz_metrics = st.sidebar.multiselect(
-        "Select Metrics to Display",
-        ["student_count", "attempt_rate", "mean_grade", "grade_variance"],
-        default=["student_count", "attempt_rate", "mean_grade", "grade_variance"],
-        format_func=humanize_column_name,
-    )
 
 if uploaded_files:
     if response_df.empty:
@@ -543,94 +434,6 @@ if uploaded_files:
                 st.write("- Lower score distributions and greater concentration of incorrect responses may indicate misconceptions or missing prerequisite knowledge.")
                 st.write("- PRT pass rates help identify which branches of a Potential Response Tree are being routed correctly.")
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.header("Quiz Analysis")
-        st.caption(f"Combined across {len(quizzes_for_analysis)} of {len(quiz_names)} uploaded quiz file(s) (see 'Select quizzes to include' in the sidebar), independent of the quiz selected above.")
-
-        # 8-13. Quiz Analysis (combined across the quizzes selected in the sidebar)
-        attempt_frame = build_quiz_attempt_frame(response_df[response_df["quiz_name"].isin(quizzes_for_analysis)])
-
-        quiz_merged_table = None
-        quiz_summary_table = None
-        quiz_boxplot_fig = None
-        quiz_engagement_fig = None
-        quiz_scatter_fig = None
-        quiz_linegraph_fig = None
-
-        if show_quiz_merged:
-            with st.container(border=True):
-                st.subheader("8. Merged List of Users and Files")
-                st.caption("Combines every uploaded quiz file into one view. Each row is one attempt, with the student, quiz, and date.")
-                quiz_merged_table = humanize_columns(attempt_frame)
-                st.dataframe(quiz_merged_table, use_container_width=True, hide_index=True)
-
-        if show_quiz_summary:
-            with st.container(border=True):
-                st.subheader("9. Summary of Quiz Stats")
-                st.caption("Aggregated statistics per quiz, combined across all uploaded files.")
-                if not attempt_frame.empty:
-                    quiz_stats_df = compute_quiz_stats(attempt_frame, selected_quiz_stats)
-                    quiz_summary_table = humanize_columns(quiz_stats_df)
-                    st.dataframe(quiz_summary_table, use_container_width=True, hide_index=True)
-                else:
-                    st.info("No quiz attempt data available yet.")
-
-        if show_quiz_boxplot:
-            with st.container(border=True):
-                st.subheader("10. Quiz Grade Distribution (Box Plot)")
-                st.caption("Spread of grades per quiz, with mean grade overlay, combined across all uploaded files.")
-                if not attempt_frame.empty:
-                    fig = build_boxplot_figure(attempt_frame, colorblind_mode=colorblind_mode)
-                    fig.update_layout(template="plotly")
-                    st.plotly_chart(fig, use_container_width=True, key="quiz_boxplot")
-                    quiz_boxplot_fig = fig
-                else:
-                    st.info("No quiz attempt data available yet.")
-
-        if show_quiz_engagement:
-            with st.container(border=True):
-                st.subheader("11. Engagement Over Time")
-                st.caption("Density of quiz attempt start times per quiz, combined across all uploaded files.")
-                if not attempt_frame.empty:
-                    fig = build_engagement_figure(attempt_frame, colorblind_mode=colorblind_mode)
-                    if fig is not None:
-                        fig.update_layout(template="plotly")
-                        st.plotly_chart(fig, use_container_width=True, key="quiz_engagement")
-                        quiz_engagement_fig = fig
-                    else:
-                        st.info("Not enough date variation across attempts to estimate an engagement density.")
-                else:
-                    st.info("No quiz attempt data available yet.")
-
-        if show_quiz_scatter:
-            with st.container(border=True):
-                st.subheader("12. Scatter Plot: Attempts vs Grades")
-                st.caption("Correlation between number of attempts and grade outcome, combined across all uploaded files.")
-                if not attempt_frame.empty:
-                    result = build_scatter_figure(attempt_frame, quiz_grade_type, colorblind_mode=colorblind_mode)
-                    if result is not None:
-                        fig, correlation, y_label, _ = result
-                        fig.update_layout(template="plotly")
-                        st.write(f"Correlation between Attempts and Quiz {y_label}: r = {correlation:.2f}")
-                        st.plotly_chart(fig, use_container_width=True, key="quiz_scatter")
-                        quiz_scatter_fig = fig
-                else:
-                    st.info("No quiz attempt data available yet.")
-
-        if show_quiz_linegraph:
-            with st.container(border=True):
-                st.subheader("13. Line Graph of Various Metrics")
-                st.caption("Trend of selected metrics across quizzes, combined across all uploaded files.")
-                if not attempt_frame.empty:
-                    if selected_quiz_metrics:
-                        trend_data = build_metric_trend_data(attempt_frame, selected_quiz_metrics)
-                        fig = build_line_graph_figure(trend_data, colorblind_mode=colorblind_mode)
-                        fig.update_layout(template="plotly")
-                        st.plotly_chart(fig, use_container_width=True, key="quiz_linegraph")
-                        quiz_linegraph_fig = fig
-                else:
-                    st.info("No quiz attempt data available yet.")
-
         def _build_question_pdf_sections(quiz_name: str, selected_sections: list[str]) -> list[dict]:
             """All 6 Question Analysis PDF sections (summary, difficulty w/ charts, item
             details/error drill-down, response distribution, student matrix, metrics) for
@@ -807,31 +610,11 @@ if uploaded_files:
         ]
         available_question_sections = [label for enabled, label in question_section_options if enabled]
 
-        quiz_section_options = [
-            (show_quiz_merged, "8. Merged List of Users and Files"),
-            (show_quiz_summary, "9. Summary of Quiz Stats"),
-            (show_quiz_boxplot, "10. Quiz Grade Distribution (Box Plot)"),
-            (show_quiz_engagement, "11. Engagement Over Time"),
-            (show_quiz_scatter, "12. Scatter Plot: Attempts vs Grades"),
-            (show_quiz_linegraph, "13. Line Graph of Various Metrics"),
-        ]
-        available_quiz_sections = [label for enabled, label in quiz_section_options if enabled]
-
         st.markdown("<br>", unsafe_allow_html=True)
         with st.container(border=True):
             st.markdown("### 📄 PDF Report Options")
-            pdf_include_quiz_summary = st.checkbox("Include Quiz Analysis Summary", value=True)
-            pdf_selected_quiz_sections = available_quiz_sections
-            if pdf_include_quiz_summary and available_quiz_sections:
-                pdf_selected_quiz_sections = st.multiselect(
-                    "Select which Quiz Analysis sections to include",
-                    options=available_quiz_sections,
-                    default=available_quiz_sections,
-                )
-
-            pdf_include_question_breakdown = st.checkbox("Include Question Analysis Breakdown", value=True)
             pdf_selected_question_sections = available_question_sections
-            if pdf_include_question_breakdown and available_question_sections:
+            if available_question_sections:
                 pdf_selected_question_sections = st.multiselect(
                     "Select which Question Analysis sections to include",
                     options=available_question_sections,
@@ -839,42 +622,25 @@ if uploaded_files:
                 )
 
             pdf_selected_quizzes = [selected_quiz_name]
-            if pdf_include_question_breakdown and len(quiz_names) > 1:
+            if len(quiz_names) > 1:
                 pdf_selected_quizzes = st.multiselect(
                     "Select which quiz(zes) to include in the Question Analysis breakdown",
                     options=quiz_names,
                     default=[selected_quiz_name],
                 )
 
-        # Single combined PDF Report Export Button (tables + rendered chart images, same
-        # order as on-screen), gated by the same sidebar checkboxes as what's visible,
-        # plus the PDF-only scope controls above. Every selected quiz gets its own full
-        # 1-6 section run (via _build_question_pdf_sections, in upload order) before the
-        # next quiz starts, so e.g. 5 quizzes selected produces quiz1[1-6], quiz2[1-6],
-        # ..., quiz5[1-6] — not all of section 1 across quizzes, then all of section 2, etc.
+        # Every selected quiz gets its own full 1-6 section run (via
+        # _build_question_pdf_sections, in upload order) before the next quiz starts, so
+        # e.g. 5 quizzes selected produces quiz1[1-6], quiz2[1-6], ..., quiz5[1-6] — not
+        # all of section 1 across quizzes, then all of section 2, etc.
         pdf_sections = []
-        if pdf_include_question_breakdown:
-            quizzes_to_render = [q for q in quiz_names if q in pdf_selected_quizzes] or [selected_quiz_name]
-            for quiz_name in quizzes_to_render:
-                pdf_sections.extend(_build_question_pdf_sections(quiz_name, pdf_selected_question_sections))
-
-        if pdf_include_quiz_summary:
-            if show_quiz_merged and quiz_merged_table is not None and "8. Merged List of Users and Files" in pdf_selected_quiz_sections:
-                pdf_sections.append({"title": "8. Merged List of Users and Files", "caption": "All parsed quiz attempt rows (combined across uploaded files)", "df": quiz_merged_table})
-            if show_quiz_summary and quiz_summary_table is not None and "9. Summary of Quiz Stats" in pdf_selected_quiz_sections:
-                pdf_sections.append({"title": "9. Summary of Quiz Stats", "caption": "Aggregated stats per quiz", "df": quiz_summary_table})
-            if show_quiz_boxplot and quiz_boxplot_fig is not None and "10. Quiz Grade Distribution (Box Plot)" in pdf_selected_quiz_sections:
-                pdf_sections.append({"title": "10. Quiz Grade Distribution (Box Plot)", "caption": "Spread of grades per quiz, with mean grade overlay", "charts": [{"title": "Grade Distribution", "figure": quiz_boxplot_fig}]})
-            if show_quiz_engagement and quiz_engagement_fig is not None and "11. Engagement Over Time" in pdf_selected_quiz_sections:
-                pdf_sections.append({"title": "11. Engagement Over Time", "caption": "Density of quiz attempt start times per quiz", "charts": [{"title": "Engagement Over Time", "figure": quiz_engagement_fig}]})
-            if show_quiz_scatter and quiz_scatter_fig is not None and "12. Scatter Plot: Attempts vs Grades" in pdf_selected_quiz_sections:
-                pdf_sections.append({"title": "12. Scatter Plot: Attempts vs Grades", "caption": "Correlation between number of attempts and grade outcome", "charts": [{"title": "Attempts vs Grades", "figure": quiz_scatter_fig}]})
-            if show_quiz_linegraph and quiz_linegraph_fig is not None and "13. Line Graph of Various Metrics" in pdf_selected_quiz_sections:
-                pdf_sections.append({"title": "13. Line Graph of Various Metrics", "caption": "Trend of selected metrics across quizzes", "charts": [{"title": "Metrics by Quiz", "figure": quiz_linegraph_fig}]})
+        quizzes_to_render = [q for q in quiz_names if q in pdf_selected_quizzes] or [selected_quiz_name]
+        for quiz_name in quizzes_to_render:
+            pdf_sections.extend(_build_question_pdf_sections(quiz_name, pdf_selected_question_sections))
 
         pdf_bytes = generate_pdf_report(
-            title="Moodle STACK Question & Quiz Analysis Report",
-            subtitle=f"Quiz: {selected_quiz_name} • {len(quiz_names)} quiz file(s) combined • Generated Client-Side",
+            title="Moodle STACK Question Analysis Report",
+            subtitle=f"Quiz: {selected_quiz_name} • Generated Client-Side",
             sections=pdf_sections,
         )
 
@@ -882,7 +648,7 @@ if uploaded_files:
         st.download_button(
             label="📄 Download PDF Report",
             data=pdf_bytes,
-            file_name=f"{selected_quiz_name}_question_and_quiz_analysis.pdf",
+            file_name=f"{selected_quiz_name}_question_analysis.pdf",
             mime="application/pdf",
             use_container_width=True,
         )
@@ -890,8 +656,8 @@ if uploaded_files:
 else:
     # Pre-upload description & export guide
     with st.container(border=True):
-        st.markdown("### 📊 Question & Quiz Analysis")
-        st.write("This section is for analyzing uploaded Moodle STACK quiz response files. Use the sidebar to upload one or more quiz responses files. After upload, you can:")
+        st.markdown("### 📊 Question Analysis")
+        st.write("This section is for analyzing uploaded Moodle STACK quiz response files, one quiz at a time. Use the sidebar to upload one or more quiz responses files. After upload, you can:")
         st.markdown(
             """
             - review question summary metrics (attempts, students, invalid/blank rates, reattempts)
@@ -899,10 +665,10 @@ else:
             - view each question's text and correct answer, with a drill-down of student errors
             - explore response distributions, PRT answer notes, and the most common wrong inputs
             - compare student performance across every question in the quiz
-            - review cohort-level quiz stats, grade distributions, and engagement trends combined across every uploaded file
-            - export a single, consolidated PDF report
+            - export a consolidated PDF report
             """
         )
+
         with st.container(border=True):
             st.markdown("<h5 style='margin-top:0;'>⚙️ Moodle Export Steps</h5>", unsafe_allow_html=True)
             st.markdown(

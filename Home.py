@@ -140,7 +140,13 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-st.page_link("pages/Question_and_Quiz_Analysis.py", label="📊 Go to Question & Quiz Analysis", use_container_width=True)
+link_cols = st.columns(3)
+with link_cols[0]:
+    st.page_link("pages/1_Question_Analysis.py", label="📊 Question Analysis", use_container_width=True)
+with link_cols[1]:
+    st.page_link("pages/2_Solution_Process_Visualization.py", label="🧭 Solution Process Visualization", use_container_width=True)
+with link_cols[2]:
+    st.page_link("pages/3_Quiz_Analysis.py", label="📈 Quiz Analysis", use_container_width=True)
 
 # Live theme watcher: st.markdown's HTML is inserted via innerHTML, so a plain
 # <script> tag in it would never execute (a standard browser security restriction,

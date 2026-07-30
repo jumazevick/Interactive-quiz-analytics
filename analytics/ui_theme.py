@@ -106,6 +106,22 @@ div[data-testid="stSidebarNav"] a {
 div[data-testid="stSidebarNav"] a:hover {
     background-color: rgba(128, 128, 128, 0.12);
 }
+/* Solution Process Visualization reads as a subsection of Question Analysis: indented,
+   slightly smaller, and prefixed with a turn-down arrow. It is still an ordinary,
+   independently selectable page — the nesting is presentational only, since Streamlit's
+   page nav is a flat list with no notion of a parent page. Anchored on the page's URL
+   slug (the file name), which is stable as long as the page file keeps its name. */
+div[data-testid="stSidebarNav"] a[href$="/Solution_Process_Visualization"] {
+    padding-left: 1.15rem;
+}
+div[data-testid="stSidebarNav"] a[href$="/Solution_Process_Visualization"] span {
+    font-size: 0.86rem;
+}
+div[data-testid="stSidebarNav"] a[href$="/Solution_Process_Visualization"]::before {
+    content: "\\21B3";
+    opacity: 0.5;
+    margin-right: 0.35rem;
+}
 
 /* Checkboxes — a touch more breathing room between stacked toggles in the sidebar,
    and a subtle hover cue; the checked-state color itself comes from the active
