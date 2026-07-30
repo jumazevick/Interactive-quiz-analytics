@@ -15,7 +15,7 @@ from analytics.anonymize import anonymize_response_df
 from analytics.latex_utils import clean_moodle_latex
 from analytics.pdf_export import generate_pdf_report
 from analytics.quiz_metrics import build_quiz_attempt_frame
-from pages.Question_and_Quiz_Analysis import build_question_analytics
+from analytics.question_analytics import build_question_analytics
 
 
 def test_parse_response_cell():
