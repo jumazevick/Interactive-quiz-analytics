@@ -7,8 +7,6 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from analytics.anonymize import anonymize_response_df
-from analytics.data_loader import load_quiz_data
 from analytics.parser import get_attempt_pools
 from analytics.pdf_export import generate_pdf_report
 from analytics.prt_transitions import (
@@ -25,7 +23,7 @@ from analytics.solution_distance import (
     compute_ted_distance_series,
 )
 from analytics.ui_theme import humanize_columns, inject_global_styles
-from analytics.upload_cache import clear_uploaded_files, get_uploader_key, sync_uploaded_files
+from analytics.upload_ui import inject_sidebar_css, load_shared_response_df, render_options_panel
 
 st.set_page_config(
     page_title="Solution Process Visualization",
@@ -34,46 +32,7 @@ st.set_page_config(
 )
 inject_global_styles()
 
-# Sidebar overflow fix — with an uploaded-files list plus the quiz selector, the sidebar
-# can outgrow the viewport and strand the lower controls below the fold with no way to
-# scroll to them. Target every testid Streamlit has used for the sidebar's scroll
-# container across versions so this doesn't silently stop working on an upgrade, and
-# separately bound the selectbox's own dropdown popover: with many uploaded quiz files
-# that option list grows past the window and, unbounded, its lower entries are
-# unreachable (the popover itself never becomes scrollable).
-st.markdown(
-    """
-    <style>
-    section[data-testid="stSidebar"] {
-        overflow-y: auto !important;
-    }
-    section[data-testid="stSidebar"] > div:first-child,
-    [data-testid="stSidebarContent"],
-    [data-testid="stSidebarUserContent"] {
-        overflow-y: auto !important;
-        max-height: 100vh !important;
-    }
-    /* Selectbox dropdowns are portaled to <body> as fixed-position elements, so no
-       ancestor bounds them: with enough uploaded files the option list is tall enough
-       that BaseWeb places its lower rows past the bottom of the window, where they
-       can't be scrolled to. Capping the inner scroller in viewport units keeps the
-       whole popover on screen and scrollable within that cap. (The list is a `div`
-       with role="listbox", not a `ul`.) */
-    div[data-testid="stSelectboxVirtualDropdown"] > div,
-    div[data-baseweb="popover"] div[role="listbox"] {
-        max-height: 40vh !important;
-        overflow-y: auto !important;
-    }
-    /* The uploaded-files list inside its expander — one line per file, so a large
-       upload batch otherwise stretches the sidebar arbitrarily far. */
-    [data-testid="stSidebarUserContent"] [data-testid="stExpanderDetails"] {
-        max-height: 30vh;
-        overflow-y: auto;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+inject_sidebar_css()
 
 title_col, colorblind_col = st.columns([5, 2])
 with title_col:
@@ -92,38 +51,10 @@ st.caption(
     "Distance between the submitted and correct CAS expressions."
 )
 
-st.sidebar.title("Options")
-uploaded_files = st.sidebar.file_uploader(
-    "Upload responses file(s)",
-    type=["csv", "xls", "xlsx"],
-    accept_multiple_files=True,
-    help="Upload one or more Moodle responses exports in CSV, XLS, or XLSX format. Files already uploaded on the Question & Quiz Analysis page are reused here automatically.",
-    key=get_uploader_key(),
-)
-uploaded_files, used_cached_upload = sync_uploaded_files(uploaded_files)
-if used_cached_upload:
-    with st.sidebar.expander("📎 Uploaded Files", expanded=False):
-        for f in uploaded_files:
-            st.write(f.name)
+uploaded_files, anonymize_data = render_options_panel()
 
-if st.sidebar.button("🗑️ Clear / Reset All Uploaded Files", use_container_width=True):
-    clear_uploaded_files()
-    st.cache_data.clear()
-    st.rerun()
-
-anonymize_data = st.sidebar.checkbox("🔒 Anonymize Student Data", value=True)
-
-quiz_metadata: list[dict[str, object]] = []
-response_df = pd.DataFrame()
-quiz_names: list[str] = []
+quiz_metadata, response_df, quiz_names = load_shared_response_df(uploaded_files, anonymize_data)
 selected_quiz_name = None
-
-if uploaded_files:
-    quiz_metadata, response_df = load_quiz_data(uploaded_files)
-    if anonymize_data:
-        response_df = anonymize_response_df(response_df)
-    if not response_df.empty:
-        quiz_names = [item["quiz_name"] for item in quiz_metadata]
 
 if quiz_names:
     # Provisional default; the real selector is rendered in the main pane below, next to

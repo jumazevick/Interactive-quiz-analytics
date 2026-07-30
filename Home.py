@@ -4,9 +4,12 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from analytics.ui_theme import inject_global_styles
+from analytics.upload_ui import inject_sidebar_css, render_options_panel
 
 st.set_page_config(page_title="Moodle/STACK Interactive Quiz Analytics", page_icon=":bar_chart:", layout="wide")
 inject_global_styles()
+inject_sidebar_css()
+render_options_panel()
 
 
 def render_youtube_video(url: str) -> None:
