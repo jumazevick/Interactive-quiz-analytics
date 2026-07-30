@@ -136,7 +136,6 @@ def normalize_question_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def detect_export_type(df: pd.DataFrame) -> str:
     """Detect whether a Moodle export is a Responses export or a Grades-with-breakdown export."""
-    normalized_columns = {str(col).strip().lower() for col in df.columns}
     has_response_columns = any(re.match(r"^response\s*\d+$", col, re.IGNORECASE) for col in df.columns)
     has_breakdown_columns = any(re.match(r"^(?:q|question)\.?(?:\s*)\d+\s*/", col, re.IGNORECASE) for col in df.columns)
     has_grade_column = any(re.match(r"^grade/\d+", col, re.IGNORECASE) for col in df.columns)
