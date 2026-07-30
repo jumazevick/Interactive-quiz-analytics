@@ -127,10 +127,28 @@ st.markdown(
         transform: translateY(-1px);
         box-shadow: 0 4px 14px {_fallback_button_shadow_hover};
     }}
+    /* Streamlit truncates a page link's label with an ellipsis rather than wrapping it,
+       which cut "Solution Process Visualization" short. Let the label wrap and centre it,
+       and give the row a common min-height so the three buttons still line up when one of
+       them takes two lines. */
+    [data-testid="stPageLink"] {{
+        min-height: 3.4rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }}
+    [data-testid="stPageLink"] > a {{
+        justify-content: center;
+    }}
     [data-testid="stPageLink"] p {{
         color: {_fallback_button_text} !important;
-        font-size: 1.15rem !important;
+        font-size: 1.05rem !important;
         font-weight: 700 !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: unset !important;
+        text-align: center;
+        line-height: 1.25;
     }}
     body[data-app-theme="dark"] [data-testid="stPageLink"] {{ background: #f4f4f5 !important; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important; }}
     body[data-app-theme="dark"] [data-testid="stPageLink"]:hover {{ box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35) !important; }}

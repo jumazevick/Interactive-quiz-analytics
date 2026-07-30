@@ -182,13 +182,37 @@ def humanize_column_name(name: str) -> str:
     return " ".join(w.upper() if w.lower() in _ACRONYM_WORDS else w.capitalize() for w in words)
 
 
+# Displayed precision. Metrics are computed at full precision and only rounded on the way
+# to a table, so nothing downstream (difficulty ranking, correlations, PDF charts) is
+# affected by it.
+DISPLAY_DECIMALS = 2
+
+
+def round_for_display(df: pd.DataFrame) -> pd.DataFrame:
+    """Round every floating-point column to `DISPLAY_DECIMALS` places.
+
+    Only float columns: integer counts stay integers, and object columns (student names,
+    raw CAS answers, the lists of top wrong expressions) are left alone.
+    """
+    float_columns = [col for col in df.columns if pd.api.types.is_float_dtype(df[col])]
+    if not float_columns:
+        return df
+    rounded = df.copy()
+    rounded[float_columns] = rounded[float_columns].round(DISPLAY_DECIMALS)
+    return rounded
+
+
 def humanize_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Return a copy of `df` with every column (and, if present, a named index) renamed
     via `humanize_column_name`, so tables read consistently (e.g. "Average Marks"
     instead of "average_marks") whether they're shown with st.dataframe or embedded in
     the PDF export — both consume the DataFrame's columns directly as headers, and
-    st.dataframe additionally shows a named index's name as its header."""
+    st.dataframe additionally shows a named index's name as its header.
+
+    Also rounds float columns to two decimals. Every table in the app is displayed through
+    this function, so it is the one place that governs displayed precision.
+    """
     renamed = df.rename(columns={col: humanize_column_name(col) for col in df.columns})
     if renamed.index.name:
         renamed = renamed.rename_axis(humanize_column_name(renamed.index.name))
-    return renamed
+    return round_for_display(renamed)

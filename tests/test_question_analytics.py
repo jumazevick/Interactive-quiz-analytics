@@ -317,3 +317,28 @@ def test_pdf_report_embeds_chart_images():
     assert pdf_bytes.startswith(b"%PDF")
 
 
+
+
+def test_prt_heatmap_greys_questions_with_no_prt():
+    """A question with no Potential Response Tree must come out blank (grey) rather than
+    sharing the red 0% cell with a PRT everybody failed. The pass rates themselves stay as
+    they are — the distinction is made at display time."""
+    import pandas as pd
+
+    from analytics.prt_analysis import build_prt_frame, build_prt_pass_heatmap, compute_prt_pass_rates
+
+    rows = pd.DataFrame([
+        {"question": "Q1", "response_text": "Seed: 1; ans1: x^2 [score]; prt1: # = 1 | prt1-1-T", "response_status": "correct"},
+        {"question": "Q1", "response_text": "Seed: 1; ans1: x [score]; prt1: # = 0 | prt1-1-F", "response_status": "incorrect"},
+        {"question": "Q2", "response_text": "Seed: 1; ans1: 42 [score]", "response_status": "incorrect"},
+    ])
+    prt_frame = build_prt_frame(rows)
+    pass_rates = compute_prt_pass_rates(prt_frame)
+
+    # Unchanged: Q2 still has a per-attempt pass rate of 0.
+    assert float(pass_rates.loc[pass_rates["question"] == "Q2", "pass_rate"].iloc[0]) == 0.0
+
+    heatmap = build_prt_pass_heatmap(pass_rates, ["Q1", "Q2"], prt_frame)
+    assert list(heatmap.index) == ["Q1", "Q2"], "every question keeps a row"
+    assert heatmap.loc["Q1", "prt1"] == 50.0
+    assert heatmap.loc["Q2"].isna().all(), "a question with no PRT must be blank, not 0%"
