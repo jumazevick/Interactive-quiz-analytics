@@ -8,6 +8,7 @@ import streamlit as st
 
 from analytics.latex_utils import clean_moodle_latex, extract_stack_answer_latex, maxima_expr_to_latex
 from analytics.pdf_ui import render_pdf_report_panel
+from analytics.prt_analysis import NO_PRT_CELL_COLOR, build_prt_pass_heatmap
 from analytics.question_analytics import build_question_analytics
 from analytics.question_details import build_error_drilldown, build_question_detail
 from analytics.ui_theme import humanize_columns, inject_global_styles, pass_fail_scale, qualitative_colors
@@ -317,17 +318,8 @@ if uploaded_files:
                             row_cols[0].markdown(f"**{row['question']}**")
                             row_cols[1].markdown(rendered)
 
-                    if not prt_pass_rates.empty:
-                        # dropna=False + fill_value=0 so a missing PRT pass-rate cell can't
-                        # drop a whole question row or PRT column from the heatmap.
-                        heatmap_df = prt_pass_rates.pivot_table(
-                            index="question",
-                            columns="prt_name",
-                            values="pass_rate",
-                            aggfunc="first",
-                            fill_value=0,
-                            dropna=False,
-                        )
+                    heatmap_df = build_prt_pass_heatmap(prt_pass_rates, question_order, analytics["prt_frame"])
+                    if not heatmap_df.empty and len(heatmap_df.columns):
                         fig3 = px.imshow(
                             heatmap_df,
                             labels=dict(x="PRT", y="Question", color="Pass %"),
@@ -336,8 +328,11 @@ if uploaded_files:
                         # Explicit tick labels so Plotly can't thin out categorical ticks it deems crowded.
                         fig3.update_xaxes(tickmode="array", tickvals=list(range(len(heatmap_df.columns))), ticktext=[str(c) for c in heatmap_df.columns])
                         fig3.update_yaxes(tickmode="array", tickvals=list(range(len(heatmap_df.index))), ticktext=[str(r) for r in heatmap_df.index])
-                        fig3.update_layout(title="PRT Pass Heatmap", template="plotly")
+                        # Questions with no PRT are NaN, which Plotly draws as transparent —
+                        # so the plot background is what colours them.
+                        fig3.update_layout(title="PRT Pass Heatmap", template="plotly", plot_bgcolor=NO_PRT_CELL_COLOR)
                         st.plotly_chart(fig3, use_container_width=True, key="prt_heatmap")
+                        st.caption("Grey cells are questions with no Potential Response Tree — not a 0% pass rate.")
                     else:
                         st.info("No PRT pass data available for this quiz.")
 

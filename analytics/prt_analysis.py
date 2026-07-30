@@ -74,15 +74,64 @@ def build_prt_frame(response_df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=["question", "prt_name", "prt_score", "response_status"])
 
     if {"prt_name", "prt_score"}.issubset(response_df.columns):
-        return response_df[["question", "prt_name", "prt_score", "response_status"]].copy()
+        frame = response_df[["question", "prt_name", "prt_score", "response_status"]].copy()
+        frame["has_prt"] = True
+        return frame
 
     rows: list[dict[str, object]] = []
     for _, row in response_df.iterrows():
         parsed = _parse_prt_values(str(row.get("response_text", "")))
         if not parsed:
-            rows.append({"question": row["question"], "prt_name": "prt1", "prt_score": 0.0, "response_status": row.get("response_status", "incorrect")})
+            # A response with no PRT trace still contributes a scored-zero row, because the
+            # pass rates are per *attempt* and a blank/invalid response is a failed attempt.
+            # `has_prt` marks it as synthesized so the heatmap can tell a question that has
+            # no Potential Response Tree at all from one whose PRT everybody failed.
+            rows.append({"question": row["question"], "prt_name": "prt1", "prt_score": 0.0, "response_status": row.get("response_status", "incorrect"), "has_prt": False})
             continue
         for prt_name, prt_score, status in parsed:
-            rows.append({"question": row["question"], "prt_name": prt_name, "prt_score": prt_score, "response_status": status})
+            rows.append({"question": row["question"], "prt_name": prt_name, "prt_score": prt_score, "response_status": status, "has_prt": True})
 
     return pd.DataFrame(rows)
+
+
+# Cells for a question that has no PRT at all. Plotly renders NaN cells as transparent, so
+# painting the plot area this colour is what makes them read as "not applicable" rather
+# than as a zero pass rate — which the red end of the pass/fail scale would otherwise
+# claim, making an un-PRT'd question look like a total failure.
+NO_PRT_CELL_COLOR = "#d4d4d8"
+
+
+def build_prt_pass_heatmap(
+    prt_pass_rates: pd.DataFrame,
+    question_order: list,
+    prt_frame: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Question x PRT pass-rate matrix for the heatmap.
+
+    Every question in `question_order` gets a row even if it has no PRT data, and missing
+    cells stay NaN rather than being filled with 0 — see `NO_PRT_CELL_COLOR`.
+
+    Pass `prt_frame` to blank out questions with no Potential Response Tree at all. Those
+    otherwise show a 0% pass rate, because `build_prt_frame` scores their responses through
+    a synthesized `prt1` — correct for a per-attempt pass rate, but it paints an un-PRT'd
+    question the same red as one every student failed. Blanking happens here, at display
+    time; the pass rates themselves are untouched.
+    """
+    if prt_pass_rates.empty:
+        return pd.DataFrame(index=list(question_order))
+
+    heatmap_df = prt_pass_rates.pivot_table(
+        index="question",
+        columns="prt_name",
+        values="pass_rate",
+        aggfunc="first",
+        dropna=False,
+    ).reindex(list(question_order))
+
+    if prt_frame is not None and "has_prt" in prt_frame.columns:
+        with_prt = set(prt_frame.loc[prt_frame["has_prt"].astype(bool), "question"])
+        without_prt = [q for q in heatmap_df.index if q not in with_prt]
+        if without_prt:
+            heatmap_df.loc[without_prt] = float("nan")
+
+    return heatmap_df

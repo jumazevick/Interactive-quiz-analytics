@@ -46,17 +46,52 @@ section[data-testid="stSidebar"] [data-testid="stFileChips"] {
     max-height: 9vh;
     overflow-y: auto;
 }
+/* The uploaded-files list: tall enough to show a couple of full entries rather than
+   clipping one mid-name, with the names a step down in size since a Moodle export
+   filename is long and wraps over several lines at body size. */
 [data-testid="stSidebarUserContent"] [data-testid="stExpanderDetails"] {
-    max-height: 14vh;
+    max-height: 24vh;
     overflow-y: auto;
 }
-/* Scroll headroom under the last control. React-aria only flips the option list above its
-   trigger when it judges there to be too little room below — at a tall viewport it happily
-   opens a scrollable list that runs past the bottom edge instead. This padding lets the
-   sidebar scroll any control up into the top half of the window, where the list always has
-   room, instead of the sidebar bottoming out with the last selector still near the fold. */
+[data-testid="stSidebarUserContent"] [data-testid="stExpanderDetails"] p {
+    font-size: 0.78rem;
+    line-height: 1.35;
+    word-break: break-word;
+}
+/* The per-file remove button: square, and centred on the row rather than sitting against
+   the top of a name that wrapped onto three lines. */
+[data-testid="stSidebarUserContent"] [data-testid="stExpanderDetails"] [data-testid="stButton"] {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+}
+[data-testid="stSidebarUserContent"] [data-testid="stExpanderDetails"] [data-testid="stButton"] button {
+    min-width: 2rem;
+    padding: 0.15rem 0.4rem;
+}
+/* Multiselect chips in the sidebar (quizzes to include, statistics, metrics): the same
+   long filenames, so shrink them too — otherwise five selected quizzes fill the sidebar
+   with truncated look-alike chips. */
+section[data-testid="stSidebar"] [data-testid="stMultiSelect"] span[data-baseweb="tag"],
+section[data-testid="stSidebar"] [data-testid="stMultiSelect"] [role="option"],
+section[data-testid="stSidebar"] [data-testid="stMultiSelect"] div[role="button"] {
+    font-size: 0.74rem;
+}
+/* The chip area caps itself at ~155px and hides the overflow, which clips the fifth
+   selected quiz in half. Raise the cap — the inner wrapper already scrolls, so a longer
+   list stays reachable rather than being cut off. */
+section[data-testid="stSidebar"] [data-testid="stMultiSelect"] div[data-baseweb="select"] > div {
+    max-height: 15rem !important;
+}
+/* Scroll headroom under the last control, for two reasons. It stops the final checkbox
+   sitting flush against the bottom edge, and react-aria only flips a selectbox's option
+   list above its trigger when it judges there to be too little room below — at a tall
+   viewport it happily opens a scrollable list that runs past the bottom edge instead. The
+   padding lets the sidebar scroll any control up into the top half of the window, where
+   the list always has room. */
 [data-testid="stSidebarUserContent"] {
-    padding-bottom: 40vh;
+    padding-bottom: 45vh;
 }
 /* And cap the option list itself so a low trigger still leaves it mostly on screen.
    Selectors cover both renderers Streamlit has shipped — react-aria (current, plain
@@ -101,7 +136,7 @@ def render_options_panel() -> tuple[list[CachedUploadedFile], bool]:
     if entries:
         with st.sidebar.expander(f"📎 Uploaded Files ({len(entries)})", expanded=False):
             for file_id, display_name in entries:
-                name_col, remove_col = st.columns([6, 1], vertical_alignment="center")
+                name_col, remove_col = st.columns([5, 1], vertical_alignment="center")
                 name_col.write(display_name)
                 if remove_col.button(
                     "✕",
