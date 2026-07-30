@@ -44,12 +44,7 @@ with colorblind_col:
         key="solution_process_colorblind_mode",
         help="Switches every chart on this page to a colorblind-safe palette.",
     )
-st.caption(
-    "Visualizes how individual students — and the class as a whole — moved between "
-    "PRT-classified answer types across quiz retakes, and how far each submission sat "
-    "from the correct answer, measured two ways: by PRT-node depth, and by Tree Edit "
-    "Distance between the submitted and correct CAS expressions."
-)
+st.warning("⏳ Depending on the size of your upload, it may take up to 30 seconds for all statistics to fully render, and up to 30 seconds for the downloadable PDF report to generate.")
 
 uploaded_files, anonymize_data = render_options_panel()
 
@@ -123,9 +118,13 @@ if not uploaded_files:
     with st.container(border=True):
         st.markdown("### 🧭 Solution Process Visualization")
         st.write(
-            "Upload a Moodle **Responses** export (with the Question text / Response / "
-            "Right answer display options enabled) via the sidebar. Files uploaded on any "
-            "other page are picked up here automatically. After upload, you can:"
+            "This section visualizes how individual students — and the class as a whole — "
+            "moved between PRT-classified answer types across quiz retakes, and how far "
+            "each submission sat from the correct answer, measured two ways: by PRT-node "
+            "depth, and by Tree Edit Distance between the submitted and correct CAS "
+            "expressions. Use the sidebar to upload one or more quiz responses files, with "
+            "the Question text / Response / Right answer display options enabled. After "
+            "upload, you can:"
         )
         st.markdown(
             """
