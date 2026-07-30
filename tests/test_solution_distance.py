@@ -178,9 +178,13 @@ def test_build_3d_figures_smoke():
 
 
 def test_scene_backdrop_is_fixed_geometry_not_flipping_panes():
-    """The walls have to be traces pinned to the low-x/low-y/low-z planes; Plotly's own
-    panes are redrawn on whichever faces face away from the camera, so they swap sides
-    mid-drag. Their ranges must match the axis ranges exactly, or the box won't close."""
+    """The walls have to be traces pinned to fixed planes; Plotly's own panes are redrawn on
+    whichever faces face away from the camera, so they swap sides mid-drag.
+
+    Each wall belongs on its axis's *far* face, which is always the first value of that
+    axis's range: for an ascending axis that is the low end, and for the reversed Students
+    axis it is the high end. Their other two extents must span the full range, or the box
+    won't close."""
     df = pd.DataFrame([_row("s1", 1, NODE2_TRUE), _row("s1", 2, CORRECT)])
     fig = build_prt_distance_3d_figure(df, "Q1")
     scene = fig.layout.scene
@@ -202,15 +206,41 @@ def test_scene_backdrop_is_fixed_geometry_not_flipping_panes():
         flat = [name for name, values in coords.items() if len(set(values)) == 1]
         assert len(flat) == 1, "each wall lies in one plane"
         held = flat[0]
-        low, high = ranges[held]
-        # Pinned to the low face — the three that sit behind the data at the default eye.
-        assert coords[held][0] == low, f"{held} wall must sit at the low end, not {high}"
+        far_end, near_end = ranges[held]
+        # Pinned to the far face — the three that sit behind the data at the default eye.
+        assert coords[held][0] == far_end, f"{held} wall must sit at {far_end}, not {near_end}"
         pinned.add(held)
         for name in coords.keys() - {held}:
-            assert (min(coords[name]), max(coords[name])) == tuple(ranges[name]), (
+            assert (min(coords[name]), max(coords[name])) == tuple(sorted(ranges[name])), (
                 f"wall must span the full {name} range so the box closes"
             )
     assert pinned == {"x", "y", "z"}, "one wall per plane: floor, back and side"
+
+
+def test_students_axis_runs_back_to_front_without_moving_any_student():
+    """Rank 1 must sit nearest the viewer. The flip has to be a coordinate-space flip, not
+    relabelled ticks, so every student's own x/y/z stays exactly as it was — and the side
+    wall has to move to the axis's new far face, or it ends up in front of the data."""
+    df = pd.DataFrame([
+        _row("s1", 1, CORRECT),
+        _row("s2", 1, NODE2_TRUE), _row("s2", 2, CORRECT),
+        _row("s3", 1, ALL_FALSE), _row("s3", 2, NODE3_TRUE), _row("s3", 3, CORRECT),
+    ])
+    for build in (build_prt_distance_3d_figure, build_ted_distance_3d_figure):
+        fig = build(df, "Q1")
+        low, high = sorted(fig.layout.scene.xaxis.range)
+        assert list(fig.layout.scene.xaxis.range) == [high, low], "Students axis must be reversed"
+
+        # Ranks are still 1..N on the data itself, one constant x per student.
+        ranks = sorted(trace.x[0] for trace in _student_traces(fig))
+        assert ranks == list(range(1, len(ranks) + 1))
+        for trace in _student_traces(fig):
+            assert len(set(trace.x)) == 1, "a student sits at one rank across their attempts"
+            assert list(trace.y) == list(range(len(trace.y))), "attempts stay 0..n-1"
+
+        walls = [t for t in fig.data if t.name == BACKDROP_TRACE_NAME and t.type == "mesh3d"]
+        x_wall = next(w.x[0] for w in walls if len(set(w.x)) == 1)
+        assert x_wall == high, "the side wall belongs on the reversed axis's far face"
 
 
 def test_both_3d_charts_open_from_the_same_fixed_viewpoint():
