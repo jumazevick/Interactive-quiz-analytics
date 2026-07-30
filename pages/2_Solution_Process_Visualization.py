@@ -18,8 +18,12 @@ from analytics.prt_transitions import (
     count_question_parts,
 )
 from analytics.solution_distance import (
+    CROSS_ATTEMPT_METRICS,
+    build_cross_attempt_figure,
     build_prt_distance_3d_figure,
     build_ted_distance_3d_figure,
+    classify_cross_attempt_trends,
+    compute_cross_attempt_comparison,
     compute_ted_distance_series,
 )
 from analytics.ui_theme import humanize_columns, inject_global_styles
@@ -95,6 +99,7 @@ if quiz_names and not response_df.empty:
 _SPV_SECTION_KEYS = [
     "show_spv_student_graph", "show_spv_aggregate_graph",
     "show_spv_network_features", "show_spv_prt_3d", "show_spv_ted_3d",
+    "show_spv_cross_attempt",
 ]
 spv_select_col, spv_deselect_col = st.sidebar.columns(2)
 # Setting session_state here, before the checkboxes below are instantiated in this same
@@ -112,6 +117,15 @@ show_aggregate_graph = st.sidebar.checkbox("2. Class-Wide Transition Graph", val
 show_network_features = st.sidebar.checkbox("3. Network Features per Node", value=True, key="show_spv_network_features")
 show_prt_3d = st.sidebar.checkbox("4. PRT-Distance 3D Chart", value=True, key="show_spv_prt_3d")
 show_ted_3d = st.sidebar.checkbox("5. Tree Edit Distance 3D Chart", value=True, key="show_spv_ted_3d")
+show_cross_attempt = st.sidebar.checkbox("6. Cross-Attempt Comparison", value=True, key="show_spv_cross_attempt")
+cross_attempt_metric = "Grade"
+if show_cross_attempt:
+    cross_attempt_metric = st.sidebar.radio(
+        "Compare by",
+        list(CROSS_ATTEMPT_METRICS.keys()),
+        key="cross_attempt_metric",
+        help="Grade covers the whole question (every part combined) and ignores the Part selector above; the two distance metrics are scoped to the selected part, same as the 3D charts.",
+    )
 
 render_sidebar_bottom_spacer()
 
@@ -356,6 +370,54 @@ else:
                     build_ted_distance_3d_figure(pool_a_df, selected_question, selected_part),
                     use_container_width=True, key="ted_distance_3d",
                 )
+
+    if show_cross_attempt:
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.subheader(f"3. Cross-Attempt Comparison — {cross_attempt_metric}")
+            st.caption(
+                "For every student who retook this question, how did their "
+                f"{cross_attempt_metric.lower()} change from their first attempt to their "
+                "last? Only students with 2 or more attempts are shown — a single attempt "
+                "has no change to compare."
+            )
+
+            higher_is_better = bool(CROSS_ATTEMPT_METRICS[cross_attempt_metric]["higher_is_better"])
+            comparison = compute_cross_attempt_comparison(
+                pool_a_df, selected_question, cross_attempt_metric, selected_part,
+            )
+            trends = classify_cross_attempt_trends(comparison, higher_is_better)
+
+            if comparison.empty:
+                st.info(
+                    f"No students have 2 or more attempts with a usable {cross_attempt_metric.lower()} "
+                    f"value on {selected_question}"
+                    + (f", part {selected_part}" if cross_attempt_metric != "Grade" else "")
+                    + " — nothing to compare across attempts yet."
+                )
+            else:
+                trend_counts = trends["trend"].value_counts()
+                total_students = len(trends)
+                summary_cols = st.columns(3)
+                for col, trend, emoji in zip(summary_cols, ["Improved", "Flat", "Regressed"], ["📈", "➖", "📉"]):
+                    count = int(trend_counts.get(trend, 0))
+                    percent = 100 * count / total_students if total_students else 0.0
+                    col.metric(f"{emoji} {trend}", f"{count} student(s)", f"{percent:.0f}% of {total_students}")
+
+                st.plotly_chart(
+                    build_cross_attempt_figure(comparison, trends, cross_attempt_metric, colorblind_mode),
+                    use_container_width=True, key="cross_attempt_chart",
+                )
+
+                st.write("**Ranked by change, most improved first** (positive = improved, regardless of whether this metric counts up or down when things get better):")
+                ranking_table = trends.rename(columns={
+                    "student_name": "Student Name",
+                    "first_value": "First Attempt",
+                    "last_value": "Last Attempt",
+                    "change": "Change",
+                    "trend": "Trend",
+                })[["Student Name", "First Attempt", "Last Attempt", "Change", "Trend"]]
+                st.dataframe(humanize_columns(ranking_table), use_container_width=True, hide_index=True)
 
     render_pdf_report_panel(response_df, quiz_names, colorblind_mode)
 

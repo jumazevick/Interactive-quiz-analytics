@@ -26,8 +26,12 @@ from analytics.quiz_metrics import (
     compute_quiz_stats,
 )
 from analytics.solution_distance import (
+    CROSS_ATTEMPT_METRICS,
+    build_cross_attempt_figure,
     build_prt_distance_3d_figure,
     build_ted_distance_3d_figure,
+    classify_cross_attempt_trends,
+    compute_cross_attempt_comparison,
 )
 from analytics.ui_theme import humanize_columns, qualitative_colors
 
@@ -48,7 +52,14 @@ SPV_MODULES = [
     "Network Features per Node",
     "PRT-Distance 3D Chart",
     "Tree Edit Distance 3D Chart",
+    "Cross-Attempt Comparison",
 ]
+
+# The report has no page-side control for which metric to compare by (unlike the SPV
+# page's sidebar radio), so it uses the same metric the on-screen module opens with —
+# Grade, the default there, which also has the advantage of not depending on which part
+# is selected.
+_DEFAULT_CROSS_ATTEMPT_METRIC = "Grade"
 
 QUIZ_MODULES = [
     "1. Merged List of Users and Files",
@@ -317,6 +328,32 @@ def build_spv_pdf_sections(
             "caption": "One trajectory per student over Attempt x Students x distance from the correct answer, each point colored by its own distance",
             "charts": distance_charts,
         })
+
+    if "Cross-Attempt Comparison" in selected_sections:
+        metric = _DEFAULT_CROSS_ATTEMPT_METRIC
+        higher_is_better = bool(CROSS_ATTEMPT_METRICS[metric]["higher_is_better"])
+        comparison = compute_cross_attempt_comparison(pool_a_df, question, metric, part_index)
+        if not comparison.empty:
+            trends = classify_cross_attempt_trends(comparison, higher_is_better)
+            counts = trends["trend"].value_counts()
+            fig = build_cross_attempt_figure(comparison, trends, metric, colorblind_mode)
+            ranking_table = trends.rename(columns={
+                "student_name": "Student Name",
+                "first_value": "First Attempt",
+                "last_value": "Last Attempt",
+                "change": "Change",
+                "trend": "Trend",
+            })[["Student Name", "First Attempt", "Last Attempt", "Change", "Trend"]]
+            sections.append({
+                "title": f"{prefix}Cross-Attempt Comparison ({metric})",
+                "caption": (
+                    f"Per-student {metric.lower()} change from first to last attempt among students "
+                    f"with 2+ attempts: {int(counts.get('Improved', 0))} improved, "
+                    f"{int(counts.get('Flat', 0))} flat, {int(counts.get('Regressed', 0))} regressed"
+                ),
+                "df": humanize_columns(ranking_table),
+                "charts": [{"title": "Cross-Attempt Comparison", "figure": fig}],
+            })
 
     return sections
 

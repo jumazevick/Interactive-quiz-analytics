@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 from analytics.expression_tree import parse_expression
 from analytics.prt_transitions import classify_node
 from analytics.tree_edit_distance import tree_edit_distance
+from analytics.ui_theme import pass_fail_scale
 
 _ANS_PATTERN = re.compile(r"ans(\d+):\s*(.*?)\s*\[(score|valid|invalid)\]")
 
@@ -474,3 +475,173 @@ def build_ted_distance_3d_figure(
         subset, "ted_distance", "Tree Edit Distance",
         title=f"TED Solution Process — {question} (part {part_index})",
     )
+
+
+# ---------------------------------------------------------------------------------
+# Cross-Attempt Comparison: per student, per question, how did their score/distance on
+# their own retakes of this question change from their first attempt to their last?
+# ---------------------------------------------------------------------------------
+
+# Grade is stored as a 0-1 fraction (parser.py's q_score); scaled to match the 0-10
+# display convention already used everywhere else in the app (see Question Analysis's
+# pool_b_df["scaled_score"] = pool_b_df["grade"] * 10.0).
+_GRADE_DISPLAY_SCALE = 10.0
+
+# Which underlying per-attempt series each metric reads from, its display label/axis
+# title, and whether a larger value is an improvement (Grade) or a regression (both
+# distance metrics: 0 means "already correct", so smaller is better). Grade needs no
+# `part_index` — parser.py's `grade` already averages every part's PRT fraction for that
+# attempt — so it is the only metric that stays the same across a Select Part change.
+CROSS_ATTEMPT_METRICS: dict[str, dict[str, object]] = {
+    "Grade": {"axis_title": "Score (0-10)", "higher_is_better": True},
+    "PRT Distance": {"axis_title": "Type of Error (PRT distance)", "higher_is_better": False},
+    "Tree Edit Distance": {"axis_title": "Tree Edit Distance", "higher_is_better": False},
+}
+
+# Below this, a first-vs-last change is treated as no real change rather than a tiny
+# floating-point improvement or regression — a student who scored the exact same grade
+# twice shouldn't read as "Regressed" over a 1e-15 rounding artifact.
+_FLAT_TOLERANCE = 1e-6
+
+# Fixed legend/trace order, and which slot of the app's existing red/yellow/green (or
+# colorblind blue/yellow/vermillion) pass/fail scale each trend maps to -- reusing
+# analytics.ui_theme.pass_fail_scale exactly as the PRT pass-rate heatmap already does,
+# rather than introducing a second bad/neutral/good palette into the app.
+_TREND_ORDER = ["Regressed", "Flat", "Improved"]
+
+
+def compute_cross_attempt_comparison(
+    response_df: pd.DataFrame,
+    question: str,
+    metric: str,
+    part_index: int = 1,
+) -> pd.DataFrame:
+    """Per-attempt values of `metric` (one of the keys in `CROSS_ATTEMPT_METRICS`) for
+    every student on `question` who has 2+ *qualifying* attempts — one with a single
+    attempt has no change to show, and is dropped rather than plotted as a lone point.
+
+    Reuses the exact same per-attempt metrics the other Solution Process Visualization
+    modules already compute (`grade` straight from the parsed response rows for the
+    question overall; `compute_prt_distance_series`/`compute_ted_distance_series` for the
+    two part-scoped distance metrics) instead of recomputing anything.
+
+    Returns one row per qualifying (student, attempt) with columns `student_id`,
+    `student_name`, `attempt_number` (1-based, sequential within that student's own
+    attempts on this question — not a global attempt count), and `value`.
+    """
+    columns = ["student_id", "student_name", "attempt_number", "value"]
+    if metric not in CROSS_ATTEMPT_METRICS:
+        raise ValueError(f"Unknown Cross-Attempt Comparison metric: {metric!r}")
+    if response_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    if metric == "Grade":
+        subset = response_df[response_df["question"] == question].copy()
+        subset["value"] = subset["grade"] * _GRADE_DISPLAY_SCALE
+    elif metric == "PRT Distance":
+        subset = compute_prt_distance_series(response_df, question, part_index)
+        subset["value"] = subset["prt_distance"]
+    else:
+        subset = compute_ted_distance_series(response_df, question, part_index)
+        subset["value"] = subset["ted_distance"]
+
+    subset = subset.dropna(subset=["value"])
+    if subset.empty:
+        return pd.DataFrame(columns=columns)
+
+    subset = subset.sort_values(by=["student_id", "completed_dt", "attempt_idx"])
+    subset["attempt_number"] = subset.groupby("student_id").cumcount() + 1
+
+    has_multiple_attempts = subset.groupby("student_id")["attempt_number"].transform("max") >= 2
+    subset = subset[has_multiple_attempts]
+
+    return subset[columns].reset_index(drop=True)
+
+
+def classify_cross_attempt_trends(comparison: pd.DataFrame, higher_is_better: bool) -> pd.DataFrame:
+    """One row per student: their first and last qualifying-attempt value, a uniformly
+    improvement-positive `change` (positive = improved, negative = regressed, regardless
+    of whether the underlying metric itself counts up or down when things get better —
+    so "most improved" is always a plain descending sort on `change`), and a `trend`
+    label. Sorted by `change` descending, i.e. most improved first.
+    """
+    columns = ["student_id", "student_name", "first_value", "last_value", "change", "trend"]
+    if comparison.empty:
+        return pd.DataFrame(columns=columns)
+
+    rows = []
+    for student_id, group in comparison.groupby("student_id"):
+        group = group.sort_values("attempt_number")
+        first_value = float(group["value"].iloc[0])
+        last_value = float(group["value"].iloc[-1])
+        raw_delta = last_value - first_value
+        change = raw_delta if higher_is_better else -raw_delta
+        if abs(change) <= _FLAT_TOLERANCE:
+            trend = "Flat"
+        elif change > 0:
+            trend = "Improved"
+        else:
+            trend = "Regressed"
+        rows.append({
+            "student_id": student_id,
+            "student_name": group["student_name"].iloc[0],
+            "first_value": first_value,
+            "last_value": last_value,
+            "change": change,
+            "trend": trend,
+        })
+
+    return pd.DataFrame(rows, columns=columns).sort_values(by="change", ascending=False).reset_index(drop=True)
+
+
+def build_cross_attempt_figure(
+    comparison: pd.DataFrame,
+    trends: pd.DataFrame,
+    metric: str,
+    colorblind_mode: bool,
+) -> go.Figure:
+    """One line per qualifying student: x = attempt number within their own attempts on
+    this question, y = the selected metric, colored by whether they improved, stayed
+    flat, or regressed between their first and last attempt.
+
+    Traces are grouped by trend (not given one legend entry per student) via
+    `legendgroup`, so the legend stays exactly 3 entries — Regressed / Flat / Improved —
+    however many students are plotted, and clicking one legend entry toggles every
+    student in that group at once, matching the compact-legend convention the rest of
+    this page's charts already follow (e.g. the transition graphs' small fixed node
+    legend) rather than an unreadable one-entry-per-student list at 20-30+ students.
+    """
+    axis_title = CROSS_ATTEMPT_METRICS[metric]["axis_title"]
+    trend_color = dict(zip(_TREND_ORDER, pass_fail_scale(colorblind_mode)))
+    trend_by_student = trends.set_index("student_id")["trend"].to_dict()
+
+    fig = go.Figure()
+    for trend in _TREND_ORDER:
+        student_ids = [sid for sid, t in trend_by_student.items() if t == trend]
+        is_first_in_group = True
+        for student_id in student_ids:
+            group = comparison[comparison["student_id"] == student_id].sort_values("attempt_number")
+            student_name = group["student_name"].iloc[0]
+            fig.add_trace(go.Scatter(
+                x=group["attempt_number"],
+                y=group["value"],
+                mode="lines+markers",
+                line=dict(color=trend_color[trend], width=2),
+                marker=dict(size=6, color=trend_color[trend]),
+                opacity=0.8,
+                name=trend,
+                legendgroup=trend,
+                showlegend=is_first_in_group,
+                text=[str(student_name)] * len(group),
+                hovertemplate=f"%{{text}}<br>Attempt %{{x}}<br>{axis_title}: %{{y}}<extra></extra>",
+            ))
+            is_first_in_group = False
+
+    fig.update_xaxes(title="Attempt", dtick=1)
+    fig.update_yaxes(title=axis_title)
+    fig.update_layout(
+        title=f"Cross-Attempt Comparison — {metric}",
+        legend_title="Trend (first → last attempt)",
+        template="plotly",
+    )
+    return fig
