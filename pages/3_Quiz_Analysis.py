@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import pandas as pd
 import streamlit as st
 
-from analytics.anonymize import anonymize_response_df
-from analytics.data_loader import load_quiz_data
 from analytics.pdf_export import generate_pdf_report
 from analytics.quiz_metrics import (
     build_boxplot_figure,
@@ -16,7 +13,7 @@ from analytics.quiz_metrics import (
     compute_quiz_stats,
 )
 from analytics.ui_theme import humanize_column_name, humanize_columns, inject_global_styles
-from analytics.upload_cache import clear_uploaded_files, get_uploader_key, sync_uploaded_files
+from analytics.upload_ui import inject_sidebar_css, load_shared_response_df, render_options_panel
 
 
 st.set_page_config(
@@ -41,63 +38,12 @@ with colorblind_col:
     )
 st.warning("⏳ Depending on the size of your upload, it may take up to 30 seconds for all statistics to fully render, and up to 30 seconds for the downloadable PDF report to generate.")
 
-# Sidebar overflow fix: with 13 section checkboxes plus a quiz selector, the sidebar
-# can outgrow the viewport and hide the quiz dropdown below the fold without scrolling.
-# Target every testid Streamlit has used for the sidebar's scroll container across
-# versions (stSidebarContent / stSidebarUserContent in current releases, the older
-# `> div:first-child` structure in earlier ones) so this doesn't silently stop working
-# on a Streamlit upgrade.
-st.markdown(
-    """
-    <style>
-    section[data-testid="stSidebar"] {
-        overflow-y: auto !important;
-    }
-    section[data-testid="stSidebar"] > div:first-child,
-    [data-testid="stSidebarContent"],
-    [data-testid="stSidebarUserContent"] {
-        overflow-y: auto !important;
-        max-height: 100vh !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+inject_sidebar_css()
 
-# Sidebar - Options and Section Checkboxes (always visible before upload)
-st.sidebar.title("Options")
-uploaded_files = st.sidebar.file_uploader(
-    "Upload responses file(s)",
-    type=["csv", "xls", "xlsx"],
-    accept_multiple_files=True,
-    help="Upload one or more Moodle responses exports in CSV, XLS, or XLSX format.",
-    key=get_uploader_key(),
-)
-uploaded_files, used_cached_upload = sync_uploaded_files(uploaded_files)
-if used_cached_upload:
-    with st.sidebar.expander("📎 Uploaded Files", expanded=False):
-        for f in uploaded_files:
-            st.write(f.name)
-
-if st.sidebar.button("🗑️ Clear / Reset All Uploaded Files", use_container_width=True):
-    clear_uploaded_files()
-    st.cache_data.clear()
-    st.rerun()
-
-anonymize_data = st.sidebar.checkbox("🔒 Anonymize Student Data", value=True)
+uploaded_files, anonymize_data = render_options_panel()
 
 
-quiz_metadata: list[dict[str, object]] = []
-response_df = pd.DataFrame()
-quiz_names: list[str] = []
-selected_quiz_name = None
-
-if uploaded_files:
-    quiz_metadata, response_df = load_quiz_data(uploaded_files)
-    if anonymize_data:
-        response_df = anonymize_response_df(response_df)
-    if not response_df.empty:
-        quiz_names = [item["quiz_name"] for item in quiz_metadata]
+quiz_metadata, response_df, quiz_names = load_shared_response_df(uploaded_files, anonymize_data)
 
 # --- Sidebar: Quiz Analysis section — each sub-widget lives right under the
 # checkbox/section it configures, instead of being scattered wherever its section
