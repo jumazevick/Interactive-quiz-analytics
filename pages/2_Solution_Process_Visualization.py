@@ -8,7 +8,7 @@ import plotly.express as px
 import streamlit as st
 
 from analytics.parser import get_attempt_pools
-from analytics.pdf_export import generate_pdf_report
+from analytics.pdf_ui import render_pdf_report_panel
 from analytics.prt_transitions import (
     build_aggregate_graph,
     build_student_node_sequence,
@@ -157,12 +157,6 @@ else:
         + ". Change the quiz, question or part in the sidebar."
     )
 
-    aggregate_fig = None
-    prt_fig = None
-    ted_fig = None
-    network_features = pd.DataFrame()
-    network_feature_figs: list[dict] = []
-
     if show_student_graph or show_aggregate_graph or show_network_features:
         st.markdown("<br>", unsafe_allow_html=True)
         with st.container(border=True):
@@ -240,11 +234,13 @@ else:
                 if not agg_edges:
                     st.info("Not enough multi-attempt data for this question to build an aggregate graph.")
                 else:
-                    aggregate_fig = build_transition_graph_figure(
-                        agg_nodes, agg_edges, colorblind_mode=colorblind_mode,
-                        title=f"Class-wide Answer Transitions — {selected_question} (part {selected_part})",
+                    st.plotly_chart(
+                        build_transition_graph_figure(
+                            agg_nodes, agg_edges, colorblind_mode=colorblind_mode,
+                            title=f"Class-wide Answer Transitions — {selected_question} (part {selected_part})",
+                        ),
+                        use_container_width=True, key="aggregate_graph",
                     )
-                    st.plotly_chart(aggregate_fig, use_container_width=True, key="aggregate_graph")
 
             if show_network_features:
                 if not agg_edges:
@@ -277,7 +273,6 @@ else:
                         feature_fig.update_xaxes(type="category")
                         feature_fig.update_layout(title=label, showlegend=False)
                         col.plotly_chart(feature_fig, use_container_width=True, key=f"network_feature_{metric}")
-                        network_feature_figs.append({"title": label, "figure": feature_fig})
 
     if show_prt_3d or show_ted_3d:
         st.markdown("<br>", unsafe_allow_html=True)
@@ -297,8 +292,10 @@ else:
             )
 
             if show_prt_3d:
-                prt_fig = build_prt_distance_3d_figure(pool_a_df, selected_question, selected_part)
-                st.plotly_chart(prt_fig, use_container_width=True, key="prt_distance_3d")
+                st.plotly_chart(
+                    build_prt_distance_3d_figure(pool_a_df, selected_question, selected_part),
+                    use_container_width=True, key="prt_distance_3d",
+                )
 
             if show_ted_3d:
                 ted_subset = compute_ted_distance_series(pool_a_df, selected_question, selected_part)
@@ -308,57 +305,12 @@ else:
                         f"⚠️ {unparsed} response(s) for this part couldn't be parsed as a "
                         "math expression and are excluded from the Tree Edit Distance chart below."
                     )
-                ted_fig = build_ted_distance_3d_figure(pool_a_df, selected_question, selected_part)
-                st.plotly_chart(ted_fig, use_container_width=True, key="ted_distance_3d")
+                st.plotly_chart(
+                    build_ted_distance_3d_figure(pool_a_df, selected_question, selected_part),
+                    use_container_width=True, key="ted_distance_3d",
+                )
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    with st.container(border=True):
-        st.markdown("### 📄 PDF Report Options")
-        st.caption(
-            "Includes the class-wide aggregate graph, network feature charts, and both "
-            "3D distance charts for the question and part selected above. The "
-            "interactive single-student graph above is screen-only and isn't included."
-        )
-
-        part_label = f"{selected_question} part {selected_part}"
-        pdf_sections = []
-        if aggregate_fig is not None:
-            pdf_sections.append({
-                "title": f"Class-wide Answer Transitions — {part_label}",
-                "caption": "Aggregated solution-process transition graph",
-                "charts": [{"title": "Transition Graph", "figure": aggregate_fig}],
-            })
-        if network_feature_figs:
-            pdf_sections.append({
-                "title": f"Network Features — {part_label}",
-                "caption": "In-degree / out-degree / degree centrality per node",
-                "df": humanize_columns(network_features),
-                "charts": network_feature_figs,
-            })
-        distance_charts = []
-        if prt_fig is not None:
-            distance_charts.append({"title": "PRT Distance", "figure": prt_fig})
-        if ted_fig is not None:
-            distance_charts.append({"title": "Tree Edit Distance", "figure": ted_fig})
-        if distance_charts:
-            pdf_sections.append({
-                "title": f"3D Solution Process Distance — {part_label}",
-                "caption": "PRT distance and Tree Edit Distance trajectories, colored by each point's own distance from the correct answer",
-                "charts": distance_charts,
-            })
-
-        pdf_bytes = generate_pdf_report(
-            title="Solution Process Visualization Report",
-            subtitle=f"Quiz: {selected_quiz_name} • {part_label} • Generated Client-Side",
-            sections=pdf_sections,
-        )
-        st.download_button(
-            label="📄 Download PDF Report",
-            data=pdf_bytes,
-            file_name=f"{selected_quiz_name}_{selected_question}_part{selected_part}_solution_process.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-        )
+    render_pdf_report_panel(response_df, quiz_names, colorblind_mode)
 
 st.markdown("<br><hr>", unsafe_allow_html=True)
 st.markdown(

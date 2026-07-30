@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from analytics.pdf_export import generate_pdf_report
+from analytics.pdf_ui import render_pdf_report_panel
 from analytics.quiz_metrics import (
     build_boxplot_figure,
     build_engagement_figure,
@@ -105,19 +105,11 @@ if uploaded_files:
         # 8-13. Quiz Analysis (combined across the quizzes selected in the sidebar)
         attempt_frame = build_quiz_attempt_frame(response_df[response_df["quiz_name"].isin(quizzes_for_analysis)])
 
-        quiz_merged_table = None
-        quiz_summary_table = None
-        quiz_boxplot_fig = None
-        quiz_engagement_fig = None
-        quiz_scatter_fig = None
-        quiz_linegraph_fig = None
-
         if show_quiz_merged:
             with st.container(border=True):
                 st.subheader("8. Merged List of Users and Files")
                 st.caption("Combines every uploaded quiz file into one view. Each row is one attempt, with the student, quiz, and date.")
-                quiz_merged_table = humanize_columns(attempt_frame)
-                st.dataframe(quiz_merged_table, use_container_width=True, hide_index=True)
+                st.dataframe(humanize_columns(attempt_frame), use_container_width=True, hide_index=True)
 
         if show_quiz_summary:
             with st.container(border=True):
@@ -125,8 +117,7 @@ if uploaded_files:
                 st.caption("Aggregated statistics per quiz, combined across all uploaded files.")
                 if not attempt_frame.empty:
                     quiz_stats_df = compute_quiz_stats(attempt_frame, selected_quiz_stats)
-                    quiz_summary_table = humanize_columns(quiz_stats_df)
-                    st.dataframe(quiz_summary_table, use_container_width=True, hide_index=True)
+                    st.dataframe(humanize_columns(quiz_stats_df), use_container_width=True, hide_index=True)
                 else:
                     st.info("No quiz attempt data available yet.")
 
@@ -138,7 +129,6 @@ if uploaded_files:
                     fig = build_boxplot_figure(attempt_frame, colorblind_mode=colorblind_mode)
                     fig.update_layout(template="plotly")
                     st.plotly_chart(fig, use_container_width=True, key="quiz_boxplot")
-                    quiz_boxplot_fig = fig
                 else:
                     st.info("No quiz attempt data available yet.")
 
@@ -151,7 +141,6 @@ if uploaded_files:
                     if fig is not None:
                         fig.update_layout(template="plotly")
                         st.plotly_chart(fig, use_container_width=True, key="quiz_engagement")
-                        quiz_engagement_fig = fig
                     else:
                         st.info("Not enough date variation across attempts to estimate an engagement density.")
                 else:
@@ -168,7 +157,6 @@ if uploaded_files:
                         fig.update_layout(template="plotly")
                         st.write(f"Correlation between Attempts and Quiz {y_label}: r = {correlation:.2f}")
                         st.plotly_chart(fig, use_container_width=True, key="quiz_scatter")
-                        quiz_scatter_fig = fig
                 else:
                     st.info("No quiz attempt data available yet.")
 
@@ -182,63 +170,10 @@ if uploaded_files:
                         fig = build_line_graph_figure(trend_data, colorblind_mode=colorblind_mode)
                         fig.update_layout(template="plotly")
                         st.plotly_chart(fig, use_container_width=True, key="quiz_linegraph")
-                        quiz_linegraph_fig = fig
                 else:
                     st.info("No quiz attempt data available yet.")
 
-        # PDF Report Options — scoped to PDF generation only; the on-screen sections
-        # above are unaffected by these controls. Only sections currently enabled
-        # on-screen (via the sidebar checkboxes) are offered here, since their
-        # underlying tables/charts are only computed when that toggle is on.
-        quiz_section_options = [
-            (show_quiz_merged, "8. Merged List of Users and Files"),
-            (show_quiz_summary, "9. Summary of Quiz Stats"),
-            (show_quiz_boxplot, "10. Quiz Grade Distribution (Box Plot)"),
-            (show_quiz_engagement, "11. Engagement Over Time"),
-            (show_quiz_scatter, "12. Scatter Plot: Attempts vs Grades"),
-            (show_quiz_linegraph, "13. Line Graph of Various Metrics"),
-        ]
-        available_quiz_sections = [label for enabled, label in quiz_section_options if enabled]
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        with st.container(border=True):
-            st.markdown("### 📄 PDF Report Options")
-            pdf_selected_quiz_sections = available_quiz_sections
-            if available_quiz_sections:
-                pdf_selected_quiz_sections = st.multiselect(
-                    "Select which Quiz Analysis sections to include",
-                    options=available_quiz_sections,
-                    default=available_quiz_sections,
-                )
-
-        pdf_sections = []
-        if show_quiz_merged and quiz_merged_table is not None and "8. Merged List of Users and Files" in pdf_selected_quiz_sections:
-            pdf_sections.append({"title": "8. Merged List of Users and Files", "caption": "All parsed quiz attempt rows (combined across uploaded files)", "df": quiz_merged_table})
-        if show_quiz_summary and quiz_summary_table is not None and "9. Summary of Quiz Stats" in pdf_selected_quiz_sections:
-            pdf_sections.append({"title": "9. Summary of Quiz Stats", "caption": "Aggregated stats per quiz", "df": quiz_summary_table})
-        if show_quiz_boxplot and quiz_boxplot_fig is not None and "10. Quiz Grade Distribution (Box Plot)" in pdf_selected_quiz_sections:
-            pdf_sections.append({"title": "10. Quiz Grade Distribution (Box Plot)", "caption": "Spread of grades per quiz, with mean grade overlay", "charts": [{"title": "Grade Distribution", "figure": quiz_boxplot_fig}]})
-        if show_quiz_engagement and quiz_engagement_fig is not None and "11. Engagement Over Time" in pdf_selected_quiz_sections:
-            pdf_sections.append({"title": "11. Engagement Over Time", "caption": "Density of quiz attempt start times per quiz", "charts": [{"title": "Engagement Over Time", "figure": quiz_engagement_fig}]})
-        if show_quiz_scatter and quiz_scatter_fig is not None and "12. Scatter Plot: Attempts vs Grades" in pdf_selected_quiz_sections:
-            pdf_sections.append({"title": "12. Scatter Plot: Attempts vs Grades", "caption": "Correlation between number of attempts and grade outcome", "charts": [{"title": "Attempts vs Grades", "figure": quiz_scatter_fig}]})
-        if show_quiz_linegraph and quiz_linegraph_fig is not None and "13. Line Graph of Various Metrics" in pdf_selected_quiz_sections:
-            pdf_sections.append({"title": "13. Line Graph of Various Metrics", "caption": "Trend of selected metrics across quizzes", "charts": [{"title": "Metrics by Quiz", "figure": quiz_linegraph_fig}]})
-
-        pdf_bytes = generate_pdf_report(
-            title="Moodle STACK Quiz Analysis Report",
-            subtitle=f"{len(quizzes_for_analysis)} quiz file(s) combined • Generated Client-Side",
-            sections=pdf_sections,
-        )
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.download_button(
-            label="📄 Download PDF Report",
-            data=pdf_bytes,
-            file_name="quiz_analysis.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-        )
+        render_pdf_report_panel(response_df, quiz_names, colorblind_mode)
 
 else:
     # Pre-upload description & export guide
