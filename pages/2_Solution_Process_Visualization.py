@@ -23,7 +23,7 @@ from analytics.solution_distance import (
     compute_ted_distance_series,
 )
 from analytics.ui_theme import humanize_columns, inject_global_styles
-from analytics.upload_ui import inject_sidebar_css, load_shared_response_df, render_options_panel
+from analytics.upload_ui import inject_sidebar_css, load_shared_response_df, render_options_panel, render_sidebar_bottom_spacer
 
 st.set_page_config(
     page_title="Solution Process Visualization",
@@ -113,6 +113,7 @@ show_network_features = st.sidebar.checkbox("3. Network Features per Node", valu
 show_prt_3d = st.sidebar.checkbox("4. PRT-Distance 3D Chart", value=True, key="show_spv_prt_3d")
 show_ted_3d = st.sidebar.checkbox("5. Tree Edit Distance 3D Chart", value=True, key="show_spv_ted_3d")
 
+render_sidebar_bottom_spacer()
 
 if not uploaded_files:
     with st.container(border=True):

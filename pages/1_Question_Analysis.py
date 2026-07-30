@@ -12,7 +12,7 @@ from analytics.prt_analysis import build_prt_pass_heatmap, build_prt_pass_heatma
 from analytics.question_analytics import build_question_analytics
 from analytics.question_details import build_error_drilldown, build_question_detail
 from analytics.ui_theme import humanize_columns, inject_global_styles, qualitative_colors
-from analytics.upload_ui import inject_sidebar_css, load_shared_response_df, render_options_panel
+from analytics.upload_ui import inject_sidebar_css, load_shared_response_df, render_options_panel, render_sidebar_bottom_spacer
 from analytics.validation import audit_question_data
 
 
@@ -81,6 +81,8 @@ show_response = st.sidebar.checkbox("4. Question Response Distribution", value=T
 show_student = st.sidebar.checkbox("5. Student Performance by Question", value=True, key="show_student")
 show_metrics = st.sidebar.checkbox("6. Question Metrics", value=True, key="show_metrics")
 show_notes = st.sidebar.checkbox("7. Interpretation Notes", value=True, key="show_notes")
+
+render_sidebar_bottom_spacer()
 
 if uploaded_files:
     if response_df.empty:

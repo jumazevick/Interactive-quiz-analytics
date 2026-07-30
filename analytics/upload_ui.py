@@ -111,6 +111,27 @@ def inject_sidebar_css() -> None:
     st.markdown(_SIDEBAR_CSS, unsafe_allow_html=True)
 
 
+def render_sidebar_bottom_spacer() -> None:
+    """A block of real, rendered height at the very end of the sidebar, so the last
+    widget isn't flush against the bottom edge of the window.
+
+    `padding-bottom` on the sidebar's own scroll container (see `_SIDEBAR_CSS` above)
+    does not reliably create visible space here: Streamlit wraps the sidebar's actual
+    scrolling element (`stSidebarContent`) around a child (`stSidebarUserContent`) whose
+    own height is separately constrained, so padding added to that inner child doesn't
+    count towards the outer element's scrollable area (confirmed by scrolling a page to
+    its true end with padding applied — the last checkbox still sits flush against the
+    edge). An actual rendered element, on the other hand, always counts, since it's real
+    layout content rather than a padding region on a possibly-clipped box.
+
+    Call this once, as the very last thing added to the sidebar on each page — after any
+    page-specific controls that follow the shared Options panel — not from inside
+    `render_options_panel()` itself, since that panel usually isn't the last thing in the
+    sidebar.
+    """
+    st.sidebar.markdown('<div style="height: 2.5rem;"></div>', unsafe_allow_html=True)
+
+
 def render_options_panel() -> tuple[list[CachedUploadedFile], bool]:
     """The shared sidebar "Options" panel, identical on every page.
 
