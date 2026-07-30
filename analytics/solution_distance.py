@@ -50,6 +50,10 @@ _SCENE_FONT = "#2A3F5F"
 # so they render cleanly instead of z-fighting with the coplanar wall behind them.
 _GRID_INSET = 0.004
 
+# The Students axis is drawn high-to-low so the first-ranked student sits nearest the
+# viewer. Both the axis range and which face the side wall is pinned to derive from this.
+_STUDENTS_AXIS_REVERSED = True
+
 # Marks the scene's walls and gridlines, which are traces rather than layout (see
 # `_static_backdrop_traces`), so anything walking a figure's traces can tell decoration
 # apart from a student's trajectory. Never displayed: these traces skip hover and legend.
@@ -266,9 +270,14 @@ def _static_backdrop_traces(
 
     Plotly's built-in 3D panes are drawn on whichever faces of the cube currently face
     away from the camera, so they swap sides as soon as a drag crosses the diagonal.
-    Drawing the walls as ordinary traces pins them to the low-x, low-y and low-z planes —
-    the three faces behind the data at the default viewpoint — so they stay where they
-    are however the chart is rotated.
+    Drawing the walls as ordinary traces pins them to three fixed faces — the ones behind
+    the data at the default viewpoint — so they stay where they are however the chart is
+    rotated.
+
+    Which face each wall sits on depends on the direction its axis runs: the Students axis
+    is reversed (see `_build_distance_3d_figure`), which puts its far face at the *high*
+    end, so the side wall goes there. Pinning it to the low end instead would leave it
+    between the camera and the data, hiding half the trajectories.
 
     The walls are opaque. A translucent wall would let someone who orbits right around to
     the outside of the box still read the trajectories through it, but Plotly's WebGL 3D
@@ -282,11 +291,16 @@ def _static_backdrop_traces(
     y0, y1 = y_range
     z0, z1 = z_range
 
+    # The plane each wall lies in, and the direction that counts as "into the box" from it.
+    xw, x_inward = (x1, -1.0) if _STUDENTS_AXIS_REVERSED else (x0, 1.0)
+    yw, y_inward = y0, 1.0
+    zw, z_inward = z0, 1.0
+
     quads = [
-        # floor (z = z0), back wall (y = y0), side wall (x = x0)
-        dict(x=[x0, x1, x1, x0], y=[y0, y0, y1, y1], z=[z0, z0, z0, z0]),
-        dict(x=[x0, x1, x1, x0], y=[y0, y0, y0, y0], z=[z0, z0, z1, z1]),
-        dict(x=[x0, x0, x0, x0], y=[y0, y1, y1, y0], z=[z0, z0, z1, z1]),
+        # floor (z = zw), back wall (y = yw), side wall (x = xw)
+        dict(x=[x0, x1, x1, x0], y=[y0, y0, y1, y1], z=[zw, zw, zw, zw]),
+        dict(x=[x0, x1, x1, x0], y=[yw, yw, yw, yw], z=[z0, z0, z1, z1]),
+        dict(x=[xw, xw, xw, xw], y=[y0, y1, y1, y0], z=[z0, z0, z1, z1]),
     ]
     traces: list[go.Scatter3d | go.Mesh3d] = [
         go.Mesh3d(
@@ -305,10 +319,11 @@ def _static_backdrop_traces(
         for quad in quads
     ]
 
-    # Lifted just clear of each wall so the lines don't z-fight with the coplanar mesh.
-    xg = x0 + _GRID_INSET * (x1 - x0)
-    yg = y0 + _GRID_INSET * (y1 - y0)
-    zg = z0 + _GRID_INSET * (z1 - z0)
+    # Lifted just clear of each wall, into the box, so the lines don't z-fight with the
+    # coplanar mesh behind them.
+    xg = xw + x_inward * _GRID_INSET * (x1 - x0)
+    yg = yw + y_inward * _GRID_INSET * (y1 - y0)
+    zg = zw + z_inward * _GRID_INSET * (z1 - z0)
 
     grid_x: list[float | None] = []
     grid_y: list[float | None] = []
@@ -328,6 +343,9 @@ def _static_backdrop_traces(
     for z_value in z_ticks:                                   # back + side wall
         segment((x0, yg, z_value), (x1, yg, z_value))
         segment((xg, y0, z_value), (xg, y1, z_value))
+    # Close the two open edges of the box that no gridline falls on, so the walls read as
+    # a corner rather than three floating planes.
+    segment((xw, yw, z0), (xw, yw, z1))
 
     traces.append(go.Scatter3d(
         x=grid_x, y=grid_y, z=grid_z,
@@ -392,6 +410,8 @@ def _build_distance_3d_figure(
     y_ticks = _integer_ticks(y_range)
     z_ticks = _integer_ticks(z_range)
 
+    students_axis_range = list(reversed(x_range)) if _STUDENTS_AXIS_REVERSED else list(x_range)
+
     # Backdrop first, so the first *data* trace is still the one carrying the colorbar.
     for trace in _static_backdrop_traces(x_range, y_range, z_range, x_ticks, y_ticks, z_ticks):
         fig.add_trace(trace)
@@ -411,7 +431,11 @@ def _build_distance_3d_figure(
     fig.update_layout(
         title=title,
         scene=dict(
-            xaxis=dict(title="Students", range=list(x_range), tickvals=x_ticks, **axis_common),
+            # Students runs back-to-front: the reversed range puts rank 1 nearest the
+            # viewer and rank N farthest away. This flips the coordinate space itself, so
+            # every marker, line and hover label stays attached to its own student — the
+            # traces are untouched, only the direction the axis is drawn in changes.
+            xaxis=dict(title="Students", range=students_axis_range, tickvals=x_ticks, **axis_common),
             yaxis=dict(title="Attempt", range=list(y_range), tickvals=y_ticks, **axis_common),
             zaxis=dict(title=z_title, range=list(z_range), tickvals=z_ticks, **axis_common),
             # Fixed box proportions and a fixed opening viewpoint, so both charts open the
