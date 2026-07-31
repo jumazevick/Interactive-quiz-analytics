@@ -21,6 +21,7 @@ from analytics.solution_distance import (
     CROSS_ATTEMPT_METRICS,
     build_cross_attempt_figure,
     build_prt_distance_3d_figure,
+    build_single_student_attempt_figure,
     build_ted_distance_3d_figure,
     classify_cross_attempt_trends,
     compute_cross_attempt_comparison,
@@ -409,7 +410,11 @@ else:
                     use_container_width=True, key="cross_attempt_chart",
                 )
 
-                st.write("**Ranked by change, most improved first** (positive = improved, regardless of whether this metric counts up or down when things get better):")
+                st.write(
+                    "**Ranked by change, most improved first** (positive = improved, "
+                    "regardless of whether this metric counts up or down when things get "
+                    "better). Click a row to see that student's own attempts below:"
+                )
                 ranking_table = trends.rename(columns={
                     "student_name": "Student Name",
                     "first_value": "First Attempt",
@@ -417,7 +422,31 @@ else:
                     "change": "Change",
                     "trend": "Trend",
                 })[["Student Name", "First Attempt", "Last Attempt", "Change", "Trend"]]
-                st.dataframe(humanize_columns(ranking_table), use_container_width=True, hide_index=True)
+                ranking_selection = st.dataframe(
+                    humanize_columns(ranking_table),
+                    use_container_width=True,
+                    hide_index=True,
+                    on_select="rerun",
+                    selection_mode="single-row",
+                    key="cross_attempt_ranking_table",
+                )
+                selected_rows = ranking_selection["selection"]["rows"]
+                if selected_rows:
+                    selected = trends.iloc[selected_rows[0]]
+                    student_detail = comparison[comparison["student_id"] == selected["student_id"]]
+                    st.markdown(f"**Attempt-by-attempt detail — {selected['student_name']}**")
+                    st.plotly_chart(
+                        build_single_student_attempt_figure(
+                            student_detail, selected["student_name"], cross_attempt_metric,
+                            selected["trend"], colorblind_mode,
+                        ),
+                        use_container_width=True, key="cross_attempt_student_detail_chart",
+                    )
+                    detail_table = student_detail.rename(columns={
+                        "attempt_number": "Attempt",
+                        "value": cross_attempt_metric,
+                    }).sort_values("Attempt")[["Attempt", "completed_dt", cross_attempt_metric]]
+                    st.dataframe(humanize_columns(detail_table), use_container_width=True, hide_index=True)
 
     render_pdf_report_panel(response_df, quiz_names, colorblind_mode)
 

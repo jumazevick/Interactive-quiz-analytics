@@ -527,9 +527,11 @@ def compute_cross_attempt_comparison(
 
     Returns one row per qualifying (student, attempt) with columns `student_id`,
     `student_name`, `attempt_number` (1-based, sequential within that student's own
-    attempts on this question — not a global attempt count), and `value`.
+    attempts on this question — not a global attempt count), `value`, and `completed_dt`
+    (when that attempt was submitted — lets a UI drill into one student's own attempt
+    history, not just the aggregate first-vs-last comparison).
     """
-    columns = ["student_id", "student_name", "attempt_number", "value"]
+    columns = ["student_id", "student_name", "attempt_number", "value", "completed_dt"]
     if metric not in CROSS_ATTEMPT_METRICS:
         raise ValueError(f"Unknown Cross-Attempt Comparison metric: {metric!r}")
     if response_df.empty:
@@ -643,5 +645,42 @@ def build_cross_attempt_figure(
         title=f"Cross-Attempt Comparison — {metric}",
         legend_title="Trend (first → last attempt)",
         template="plotly",
+    )
+    return fig
+
+
+def build_single_student_attempt_figure(
+    detail: pd.DataFrame,
+    student_name: str,
+    metric: str,
+    trend: str,
+    colorblind_mode: bool,
+) -> go.Figure:
+    """A focused view of exactly one student's own attempts on this question, for when a
+    teacher clicks that student's row in the Cross-Attempt Comparison ranking table.
+
+    `detail` is `comparison` already filtered to one `student_id`. Colored by that
+    student's own trend (using the same `pass_fail_scale` slot as their line in the main
+    chart), so the drill-down stays visually consistent with it and with Colorblind Mode.
+    """
+    axis_title = CROSS_ATTEMPT_METRICS[metric]["axis_title"]
+    trend_color = dict(zip(_TREND_ORDER, pass_fail_scale(colorblind_mode)))
+    color = trend_color.get(trend, trend_color["Flat"])
+    ordered = detail.sort_values("attempt_number")
+
+    fig = go.Figure(go.Scatter(
+        x=ordered["attempt_number"],
+        y=ordered["value"],
+        mode="lines+markers",
+        line=dict(color=color, width=3),
+        marker=dict(size=10, color=color),
+        hovertemplate=f"Attempt %{{x}}<br>{axis_title}: %{{y}}<extra></extra>",
+    ))
+    fig.update_xaxes(title="Attempt", dtick=1)
+    fig.update_yaxes(title=axis_title)
+    fig.update_layout(
+        title=f"{student_name} — {metric} across attempts",
+        template="plotly",
+        showlegend=False,
     )
     return fig

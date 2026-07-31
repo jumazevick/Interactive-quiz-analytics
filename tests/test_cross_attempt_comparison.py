@@ -4,6 +4,7 @@ from analytics.parser import parse_response_cell
 from analytics.solution_distance import (
     CROSS_ATTEMPT_METRICS,
     build_cross_attempt_figure,
+    build_single_student_attempt_figure,
     classify_cross_attempt_trends,
     compute_cross_attempt_comparison,
 )
@@ -58,8 +59,18 @@ def test_attempt_number_is_sequential_per_student_not_global():
 
 def test_empty_result_has_the_documented_columns():
     empty = compute_cross_attempt_comparison(pd.DataFrame(), "Q1", "Grade")
-    assert list(empty.columns) == ["student_id", "student_name", "attempt_number", "value"]
+    assert list(empty.columns) == ["student_id", "student_name", "attempt_number", "value", "completed_dt"]
     assert empty.empty
+
+
+def test_comparison_rows_carry_a_completed_dt_per_attempt():
+    """The per-attempt drill-down view needs a date to show alongside each attempt's value."""
+    df = pd.DataFrame([_row("s1", 1, ALL_FALSE, grade=0.0), _row("s1", 2, CORRECT, grade=1.0)])
+    comparison = compute_cross_attempt_comparison(df, "Q1", "Grade").sort_values("attempt_number")
+    assert comparison["completed_dt"].tolist() == [
+        pd.Timestamp("2026-01-01") + pd.Timedelta(hours=1),
+        pd.Timestamp("2026-01-01") + pd.Timedelta(hours=2),
+    ]
 
 
 def test_unknown_metric_raises():
@@ -149,3 +160,24 @@ def test_all_three_metrics_are_computable_end_to_end():
     for metric in CROSS_ATTEMPT_METRICS:
         comparison = compute_cross_attempt_comparison(df, "Q1", metric, part_index=1)
         assert not comparison.empty, f"{metric} produced no comparable attempts"
+
+
+def test_single_student_figure_plots_every_attempt_for_just_that_student():
+    df = pd.DataFrame([
+        _row("s1", 1, ALL_FALSE, grade=0.0),
+        _row("s1", 2, NODE2_TRUE, grade=0.5),
+        _row("s1", 3, CORRECT, grade=1.0),
+    ])
+    comparison = compute_cross_attempt_comparison(df, "Q1", "Grade")
+    fig = build_single_student_attempt_figure(comparison, "S1", "Grade", "Improved", colorblind_mode=False)
+    assert len(fig.data) == 1
+    assert list(fig.data[0].x) == [1, 2, 3]
+    assert list(fig.data[0].y) == [0.0, 5.0, 10.0]
+
+
+def test_single_student_figure_color_follows_colorblind_mode():
+    df = pd.DataFrame([_row("s1", 1, ALL_FALSE, grade=0.0), _row("s1", 2, CORRECT, grade=1.0)])
+    comparison = compute_cross_attempt_comparison(df, "Q1", "Grade")
+    normal = build_single_student_attempt_figure(comparison, "S1", "Grade", "Improved", colorblind_mode=False)
+    safe = build_single_student_attempt_figure(comparison, "S1", "Grade", "Improved", colorblind_mode=True)
+    assert normal.data[0].line.color != safe.data[0].line.color
