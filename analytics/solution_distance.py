@@ -561,13 +561,14 @@ def compute_cross_attempt_comparison(
 
 
 def classify_cross_attempt_trends(comparison: pd.DataFrame, higher_is_better: bool) -> pd.DataFrame:
-    """One row per student: their first and last qualifying-attempt value, a uniformly
-    improvement-positive `change` (positive = improved, negative = regressed, regardless
-    of whether the underlying metric itself counts up or down when things get better —
-    so "most improved" is always a plain descending sort on `change`), and a `trend`
-    label. Sorted by `change` descending, i.e. most improved first.
+    """One row per student: their first and last qualifying-attempt value, how many
+    qualifying attempts they made (`attempt_count`), a uniformly improvement-positive
+    `change` (positive = improved, negative = regressed, regardless of whether the
+    underlying metric itself counts up or down when things get better — so "most
+    improved" is always a plain descending sort on `change`), and a `trend` label.
+    Sorted by `change` descending, i.e. most improved first.
     """
-    columns = ["student_id", "student_name", "first_value", "last_value", "change", "trend"]
+    columns = ["student_id", "student_name", "attempt_count", "first_value", "last_value", "change", "trend"]
     if comparison.empty:
         return pd.DataFrame(columns=columns)
 
@@ -587,6 +588,7 @@ def classify_cross_attempt_trends(comparison: pd.DataFrame, higher_is_better: bo
         rows.append({
             "student_id": student_id,
             "student_name": group["student_name"].iloc[0],
+            "attempt_count": int(group["attempt_number"].max()),
             "first_value": first_value,
             "last_value": last_value,
             "change": change,
