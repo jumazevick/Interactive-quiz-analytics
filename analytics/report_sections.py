@@ -339,11 +339,12 @@ def build_spv_pdf_sections(
             fig = build_cross_attempt_figure(comparison, trends, metric, colorblind_mode)
             ranking_table = trends.rename(columns={
                 "student_name": "Student Name",
+                "attempt_count": "Attempts",
                 "first_value": "First Attempt",
                 "last_value": "Last Attempt",
                 "change": "Change",
                 "trend": "Trend",
-            })[["Student Name", "First Attempt", "Last Attempt", "Change", "Trend"]]
+            })[["Student Name", "Attempts", "First Attempt", "Last Attempt", "Change", "Trend"]]
             sections.append({
                 "title": f"{prefix}Cross-Attempt Comparison ({metric})",
                 "caption": (

@@ -258,6 +258,9 @@ if uploaded_files:
                     # cleanup when there's no ansN: pattern, e.g. a non-STACK quiz).
                     right_answer_text = extract_stack_answer_latex(detail["right_answer_text"])
                     drilldown = build_error_drilldown(pool_b_df, q)
+                    ungraded_count = int(
+                        (pool_b_df[pool_b_df["question"] == q]["response_status"] == "ungraded").sum()
+                    )
                     with st.expander(f"Question {_q_num(q)}"):
                         st.markdown(f"**Question:** {question_text}")
                         st.markdown(f"**Right Answer:** {right_answer_text}")
@@ -265,6 +268,13 @@ if uploaded_files:
                             with st.expander("🔧 Raw STACK question-variable data (debug)"):
                                 st.caption("Leaked CAS session output from this question's randomization code — not part of the question itself.")
                                 st.code(debug_dump, language=None)
+                        if ungraded_count:
+                            st.caption(
+                                f"⚠️ {ungraded_count} best-attempt response(s) for this question are excluded "
+                                "above (not counted as right or wrong) because STACK re-validated the "
+                                "answer after it was already scored, so this export's Response column no "
+                                "longer shows a graded result for it."
+                            )
                         if drilldown.empty:
                             st.success("No incorrect or partial-credit responses for this question among best attempts.")
                         else:

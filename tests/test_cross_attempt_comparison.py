@@ -82,6 +82,19 @@ def test_unknown_metric_raises():
         pass
 
 
+def test_trends_report_the_qualifying_attempt_count_per_student():
+    """The ranking table shows how many attempts each student made, not just first/last,
+    since a 2-attempt and a 5-attempt "Improved" student read very differently."""
+    df = pd.DataFrame([
+        _row("s1", 1, ALL_FALSE, grade=0.0), _row("s1", 2, CORRECT, grade=1.0),
+        _row("s2", 1, ALL_FALSE, grade=0.0), _row("s2", 2, NODE2_TRUE, grade=0.5), _row("s2", 3, CORRECT, grade=1.0),
+    ])
+    comparison = compute_cross_attempt_comparison(df, "Q1", "Grade")
+    trends = classify_cross_attempt_trends(comparison, higher_is_better=True).set_index("student_id")
+    assert trends.loc["s1", "attempt_count"] == 2
+    assert trends.loc["s2", "attempt_count"] == 3
+
+
 def test_trend_classification_uses_first_vs_last_not_the_full_sequence():
     """A student who dipped in the middle but ended where they started is Flat, not
     Improved or Regressed -- only the first and last qualifying attempt matter."""

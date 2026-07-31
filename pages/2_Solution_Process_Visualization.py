@@ -417,11 +417,12 @@ else:
                 )
                 ranking_table = trends.rename(columns={
                     "student_name": "Student Name",
+                    "attempt_count": "Attempts",
                     "first_value": "First Attempt",
                     "last_value": "Last Attempt",
                     "change": "Change",
                     "trend": "Trend",
-                })[["Student Name", "First Attempt", "Last Attempt", "Change", "Trend"]]
+                })[["Student Name", "Attempts", "First Attempt", "Last Attempt", "Change", "Trend"]]
                 ranking_selection = st.dataframe(
                     humanize_columns(ranking_table),
                     use_container_width=True,

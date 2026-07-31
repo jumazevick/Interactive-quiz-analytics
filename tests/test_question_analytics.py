@@ -14,6 +14,7 @@ from analytics.parser import (
 from analytics.anonymize import anonymize_response_df
 from analytics.latex_utils import clean_moodle_latex
 from analytics.pdf_export import generate_pdf_report
+from analytics.question_details import build_error_drilldown
 from analytics.quiz_metrics import build_quiz_attempt_frame
 from analytics.question_analytics import build_question_analytics
 
@@ -244,6 +245,63 @@ def test_parse_uploaded_file_recognizes_alternate_column_names():
     assert rows.loc[0, "student_id"] == "jane123"
     assert rows.loc[0, "student_name"] == "Jane Doe"
     assert rows.loc[0, "response_status"] == "correct"
+
+
+def _response_row(response_cell: str, grade_col: str = "10.00") -> dict:
+    return {
+        "Last name": "Doe", "First name": "Jane", "Email address": "jane@example.com",
+        "State": "Finished", "Started on": "2026-07-22 09:00:00", "Completed": "2026-07-22 09:05:00",
+        "Grade/10.00": grade_col, "Response 1": response_cell,
+    }
+
+
+def test_revalidated_answer_is_ungraded_not_incorrect():
+    # Real-world bug: STACK can leave a response as `prtK: !` (no fraction) while the
+    # submitted expression is still tagged [valid] -- this happens when a student's input
+    # gets re-validated after their attempt was already scored, so the exported Response
+    # column no longer shows a graded PRT result for it. Treating the missing fraction as
+    # 0 silently invents a wrong answer STACK never actually graded.
+    rows = build_response_rows(pd.DataFrame([
+        _response_row("Seed: 1; ans1: y=3*x+5 [valid]; prt1: !")
+    ]), quiz_name="Quiz 1")
+    assert rows.loc[0, "response_status"] == "ungraded"
+    assert pd.isna(rows.loc[0, "grade"])
+
+
+def test_ungraded_response_is_excluded_from_error_drilldown():
+    # The Question Item Details / Error Drill-Down must not list this student as having
+    # gotten the question wrong -- we simply don't have a graded result for it.
+    rows = build_response_rows(pd.DataFrame([
+        _response_row("Seed: 1; ans1: y=3*x+5 [valid]; prt1: !")
+    ]), quiz_name="Quiz 1")
+    drilldown = build_error_drilldown(rows, "Q1")
+    assert drilldown.empty
+
+
+def test_genuinely_blank_response_stays_blank_not_ungraded():
+    rows = build_response_rows(pd.DataFrame([
+        _response_row("Seed: 1; prt1: !")
+    ]), quiz_name="Quiz 1")
+    assert rows.loc[0, "response_status"] == "blank"
+    assert rows.loc[0, "grade"] == 0.0
+
+
+def test_genuinely_invalid_response_stays_invalid_not_ungraded():
+    rows = build_response_rows(pd.DataFrame([
+        _response_row("Seed: 1; ans1: a*e^pigreco [invalid]; prt1: !")
+    ]), quiz_name="Quiz 1")
+    assert rows.loc[0, "response_status"] == "invalid"
+    assert rows.loc[0, "grade"] == 0.0
+
+
+def test_genuinely_wrong_response_stays_incorrect_not_ungraded():
+    # A real `# = 0` PRT result is a genuine wrong answer -- must not be swept into
+    # "ungraded" just because it's not full marks.
+    rows = build_response_rows(pd.DataFrame([
+        _response_row("Seed: 1; ans1: 4*i-3 [score]; prt1: # = 0 | prt1-0-F")
+    ]), quiz_name="Quiz 1")
+    assert rows.loc[0, "response_status"] == "incorrect"
+    assert rows.loc[0, "grade"] == 0.0
 
 
 def test_clean_moodle_latex_merges_adjacent_inline_runs_without_dollar_collision():
