@@ -303,6 +303,23 @@ def build_response_rows(df: pd.DataFrame, quiz_name: str) -> pd.DataFrame:
             is_blank = len(ans_list) == 0
             is_invalid = any(ans["tag"] == "invalid" for ans in ans_list)
 
+            # A response can be left in a "validated, not (re-)graded" state: STACK shows
+            # this as `prtK: !` (fraction None) while the submitted expression is still
+            # tagged [valid] -- distinct from blank (no ans at all) and invalid (rejected
+            # input), both of which genuinely are "not full credit". This happens when a
+            # student's input gets re-validated after their attempt was already scored;
+            # Moodle's Responses report only ever shows the CURRENT input state, not the
+            # try-by-try history, so the PRT that actually graded it isn't in this cell at
+            # all. Confirmed against a real export where a student's overall Grade/10.00
+            # was a perfect 10.00 on the same attempt row whose Response text for two
+            # questions looked exactly like this -- treating the missing fraction as 0
+            # would silently invent a wrong answer STACK never actually graded.
+            is_ungraded = (
+                not is_blank and not is_invalid
+                and len(prt_list) > 0
+                and all(prt["fraction"] is None for prt in prt_list)
+            )
+
             # Score computation: mean over all PRTs K of (prtK.fraction or 0.0)
             M = M_dict[col]
             prt_map = {prt["index"]: prt for prt in prt_list}
@@ -320,6 +337,8 @@ def build_response_rows(df: pd.DataFrame, quiz_name: str) -> pd.DataFrame:
                 response_status = "blank"
             elif is_invalid:
                 response_status = "invalid"
+            elif is_ungraded:
+                response_status = "ungraded"
             elif q_score == 1.0:
                 response_status = "correct"
             else:
@@ -329,7 +348,7 @@ def build_response_rows(df: pd.DataFrame, quiz_name: str) -> pd.DataFrame:
                 "student_id": str(student_id),
                 "student_name": student_name,
                 "question": question_label,
-                "grade": q_score,
+                "grade": float("nan") if is_ungraded else q_score,
                 "max_grade": 1.0,
                 "response_status": response_status,
                 "response_text": cell_text,
