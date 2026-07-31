@@ -18,6 +18,10 @@ from analytics.upload_cache import (
     uploader_key,
 )
 
+# Widget key for the Uploaded Files expander — shared between the panel's own use and
+# the explicit re-assertion after a removal (see render_options_panel).
+_UPLOADED_FILES_EXPANDER_KEY = "uploaded_files_expander_open"
+
 # Injected once per page. Streamlit's sidebar can outgrow the viewport (Options panel plus
 # a dozen section checkboxes plus a quiz selector) and strand the lower controls below the
 # fold with no way to scroll to them. Target every testid Streamlit has used for the
@@ -111,6 +115,27 @@ def inject_sidebar_css() -> None:
     st.markdown(_SIDEBAR_CSS, unsafe_allow_html=True)
 
 
+def render_sidebar_bottom_spacer() -> None:
+    """A block of real, rendered height at the very end of the sidebar, so the last
+    widget isn't flush against the bottom edge of the window.
+
+    `padding-bottom` on the sidebar's own scroll container (see `_SIDEBAR_CSS` above)
+    does not reliably create visible space here: Streamlit wraps the sidebar's actual
+    scrolling element (`stSidebarContent`) around a child (`stSidebarUserContent`) whose
+    own height is separately constrained, so padding added to that inner child doesn't
+    count towards the outer element's scrollable area (confirmed by scrolling a page to
+    its true end with padding applied — the last checkbox still sits flush against the
+    edge). An actual rendered element, on the other hand, always counts, since it's real
+    layout content rather than a padding region on a possibly-clipped box.
+
+    Call this once, as the very last thing added to the sidebar on each page — after any
+    page-specific controls that follow the shared Options panel — not from inside
+    `render_options_panel()` itself, since that panel usually isn't the last thing in the
+    sidebar.
+    """
+    st.sidebar.markdown('<div style="height: 2.5rem;"></div>', unsafe_allow_html=True)
+
+
 def render_options_panel() -> tuple[list[CachedUploadedFile], bool]:
     """The shared sidebar "Options" panel, identical on every page.
 
@@ -134,7 +159,19 @@ def render_options_panel() -> tuple[list[CachedUploadedFile], bool]:
 
     entries = registry_entries()
     if entries:
-        with st.sidebar.expander(f"📎 Uploaded Files ({len(entries)})", expanded=False):
+        # A stable `key` makes Streamlit track this expander's open/closed state in
+        # session_state on its own, the same way it does for a checkbox — `expanded=`
+        # below is then only its default the very first time the key is seen, exactly
+        # the "Select All"/"Deselect All" convention already used for the section
+        # checkboxes elsewhere on these pages. Without a key, an `st.expander` has no
+        # persistent state at all: it silently reverts to `expanded=` on every rerun,
+        # which is what collapsed this panel out from under the user on every removal —
+        # each click on a file's own ✕ triggers `st.rerun()` below.
+        with st.sidebar.expander(
+            f"📎 Uploaded Files ({len(entries)})",
+            expanded=False,
+            key=_UPLOADED_FILES_EXPANDER_KEY,
+        ):
             for file_id, display_name in entries:
                 name_col, remove_col = st.columns([5, 1], vertical_alignment="center")
                 name_col.write(display_name)
@@ -144,6 +181,15 @@ def render_options_panel() -> tuple[list[CachedUploadedFile], bool]:
                     help=f"Remove {display_name}",
                 ):
                     remove_file(file_id)
+                    # The click that just fired came from inside the expander, so the
+                    # user plainly had it open — re-assert that explicitly rather than
+                    # trust the key-tracked state alone, so a batch of several removals
+                    # in a row can't have the panel snap shut between clicks for any
+                    # reason (e.g. a future Streamlit version changing how a widget's
+                    # tracked state behaves when its container's content changes shape
+                    # around it, since here the row that just disappeared came from
+                    # inside the very panel we're trying to keep open).
+                    st.session_state[_UPLOADED_FILES_EXPANDER_KEY] = True
                     # Derived data (parsed frames, metrics, TED matrices) is cached by
                     # content, so a removal changes the cache key rather than leaving a
                     # stale hit — but clearing keeps memory from growing across edits.

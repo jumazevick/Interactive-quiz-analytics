@@ -13,7 +13,7 @@ from analytics.prt_transitions import (
     count_question_parts,
 )
 from analytics.parser import get_attempt_pools
-from analytics.prt_analysis import NO_PRT_CELL_COLOR, build_prt_pass_heatmap
+from analytics.prt_analysis import build_prt_pass_heatmap, build_prt_pass_heatmap_figure
 from analytics.question_analytics import build_question_analytics
 from analytics.question_details import build_error_drilldown
 from analytics.quiz_metrics import (
@@ -26,10 +26,14 @@ from analytics.quiz_metrics import (
     compute_quiz_stats,
 )
 from analytics.solution_distance import (
+    CROSS_ATTEMPT_METRICS,
+    build_cross_attempt_figure,
     build_prt_distance_3d_figure,
     build_ted_distance_3d_figure,
+    classify_cross_attempt_trends,
+    compute_cross_attempt_comparison,
 )
-from analytics.ui_theme import humanize_columns, pass_fail_scale, qualitative_colors
+from analytics.ui_theme import humanize_columns, qualitative_colors
 
 # The canonical module list for each of the three analysis sections, in report order.
 # One list per section, used both for the PDF panel's multiselects and to gate the
@@ -48,7 +52,14 @@ SPV_MODULES = [
     "Network Features per Node",
     "PRT-Distance 3D Chart",
     "Tree Edit Distance 3D Chart",
+    "Cross-Attempt Comparison",
 ]
+
+# The report has no page-side control for which metric to compare by (unlike the SPV
+# page's sidebar radio), so it uses the same metric the on-screen module opens with —
+# Grade, the default there, which also has the advantage of not depending on which part
+# is selected.
+_DEFAULT_CROSS_ATTEMPT_METRIC = "Grade"
 
 QUIZ_MODULES = [
     "1. Merged List of Users and Files",
@@ -184,16 +195,7 @@ def build_question_pdf_sections(
 
             heatmap_df = build_prt_pass_heatmap(q_prt_pass_rates, q_order, quiz_analytics["prt_frame"])
             if not heatmap_df.empty and len(heatmap_df.columns):
-                fig3 = px.imshow(
-                    heatmap_df,
-                    labels=dict(x="PRT", y="Question", color="Pass %"),
-                    color_continuous_scale=pass_fail_scale(colorblind_mode),
-                )
-                fig3.update_xaxes(tickmode="array", tickvals=list(range(len(heatmap_df.columns))), ticktext=[str(c) for c in heatmap_df.columns])
-                fig3.update_yaxes(tickmode="array", tickvals=list(range(len(heatmap_df.index))), ticktext=[str(r) for r in heatmap_df.index])
-                # Questions with no PRT stay NaN and show through as the plot background,
-                # rather than being filled with a misleading 0% (red on the pass/fail scale).
-                fig3.update_layout(title="PRT Pass Heatmap", template="plotly", plot_bgcolor=NO_PRT_CELL_COLOR)
+                fig3 = build_prt_pass_heatmap_figure(heatmap_df, colorblind_mode)
                 response_charts.append({"title": "PRT Pass Heatmap", "figure": fig3})
 
         sections.append({
@@ -326,6 +328,32 @@ def build_spv_pdf_sections(
             "caption": "One trajectory per student over Attempt x Students x distance from the correct answer, each point colored by its own distance",
             "charts": distance_charts,
         })
+
+    if "Cross-Attempt Comparison" in selected_sections:
+        metric = _DEFAULT_CROSS_ATTEMPT_METRIC
+        higher_is_better = bool(CROSS_ATTEMPT_METRICS[metric]["higher_is_better"])
+        comparison = compute_cross_attempt_comparison(pool_a_df, question, metric, part_index)
+        if not comparison.empty:
+            trends = classify_cross_attempt_trends(comparison, higher_is_better)
+            counts = trends["trend"].value_counts()
+            fig = build_cross_attempt_figure(comparison, trends, metric, colorblind_mode)
+            ranking_table = trends.rename(columns={
+                "student_name": "Student Name",
+                "first_value": "First Attempt",
+                "last_value": "Last Attempt",
+                "change": "Change",
+                "trend": "Trend",
+            })[["Student Name", "First Attempt", "Last Attempt", "Change", "Trend"]]
+            sections.append({
+                "title": f"{prefix}Cross-Attempt Comparison ({metric})",
+                "caption": (
+                    f"Per-student {metric.lower()} change from first to last attempt among students "
+                    f"with 2+ attempts: {int(counts.get('Improved', 0))} improved, "
+                    f"{int(counts.get('Flat', 0))} flat, {int(counts.get('Regressed', 0))} regressed"
+                ),
+                "df": humanize_columns(ranking_table),
+                "charts": [{"title": "Cross-Attempt Comparison", "figure": fig}],
+            })
 
     return sections
 

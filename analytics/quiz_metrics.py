@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 
 import numpy as np
@@ -191,8 +192,45 @@ def build_engagement_figure(attempt_frame: pd.DataFrame, colorblind_mode: bool =
     return fig
 
 
+# Marker size range for the Attempts vs Grades scatter's density cue (see
+# `build_scatter_figure`): a point on its own renders at the low end, a coordinate
+# shared by several students renders larger, clamped so the largest overlaps don't
+# balloon into a dominant bubble chart.
+_SCATTER_MARKER_SIZE_MIN = 12
+_SCATTER_MARKER_SIZE_MAX = 22
+_SCATTER_MARKER_SIZE_SATURATES_AT = 6  # student count at which size stops growing
+
+
+def _deterministic_jitter(keys: pd.Series, amplitude: float, salt: str) -> pd.Series:
+    """A small, stable pseudo-random offset per key, in the range [-amplitude, amplitude].
+
+    Seeded from each row's own key via a content hash rather than numpy's global RNG
+    state, so the same student gets the same offset on every rerun -- jitter that
+    reshuffled on each interaction would be worse than the overlap it's meant to fix.
+    `salt` decorrelates the offset used for the x-axis from the one used for the y-axis:
+    reusing the same offset for both would just slide an overlapping stack diagonally
+    as a block instead of fanning it out.
+    """
+    def offset(key: str) -> float:
+        digest = hashlib.md5(f"{salt}:{key}".encode()).hexdigest()
+        fraction = int(digest[:8], 16) / 0xFFFFFFFF  # stable float in [0, 1]
+        return (fraction * 2 - 1) * amplitude
+
+    return keys.astype(str).map(offset)
+
+
 def build_scatter_figure(attempt_frame: pd.DataFrame, grade_type: str, colorblind_mode: bool = False) -> tuple[go.Figure, float, str, str] | None:
-    """Attempts-vs-grade scatter, keyed by quiz_name. Returns (figure, correlation, y_label, title)."""
+    """Attempts-vs-grade scatter, keyed by quiz_name. Returns (figure, correlation, y_label, title).
+
+    Many students share an exact (attempts, grade) coordinate -- most obviously at low
+    attempt counts, where "passed on the first try" is common -- so without help, points
+    from different quizzes stack exactly on top of each other and only the topmost color
+    is visible. Three things address that together, matching what the true coordinates
+    would otherwise hide: a small deterministic jitter so an overlapping stack fans out
+    into a visible cluster, reduced opacity so any jitter can't fully resolve still reads
+    as a denser/darker region, and marker size scaling mildly with how many students
+    shared that exact coordinate before jitter was applied.
+    """
     if attempt_frame.empty:
         return None
 
@@ -209,17 +247,42 @@ def build_scatter_figure(attempt_frame: pd.DataFrame, grade_type: str, colorblin
         y_label, title = "Average Grade", "Attempts vs Average Grade"
 
     merged_data = pd.merge(attempt_count, grade_data, on=["quiz_name", "student_id"])
+    # Correlation is computed from the true, unjittered values before anything below
+    # touches the DataFrame — the reported r must describe the real data, not the
+    # display-only fan-out applied to the plotted points.
     correlation = float(merged_data["attempt_count"].corr(merged_data["overall_grade"]))
+
+    merged_data["quiz_name_str"] = merged_data["quiz_name"].astype(str)
+    jitter_key = merged_data["quiz_name_str"] + "|" + merged_data["student_id"].astype(str)
+    # +/-0.15 keeps the true integer attempt count still visually obvious (the task's own
+    # target) while being enough to separate an exact-overlap stack into a visible cluster.
+    merged_data["attempt_count_plot"] = merged_data["attempt_count"] + _deterministic_jitter(jitter_key, amplitude=0.15, salt="x")
+    merged_data["overall_grade_plot"] = merged_data["overall_grade"] + _deterministic_jitter(jitter_key, amplitude=0.15, salt="y")
+
+    group_sizes = merged_data.groupby(["quiz_name_str", "attempt_count", "overall_grade"])["student_id"].transform("size")
+    saturation = (group_sizes.clip(upper=_SCATTER_MARKER_SIZE_SATURATES_AT) - 1) / (_SCATTER_MARKER_SIZE_SATURATES_AT - 1)
+    merged_data["_marker_size"] = _SCATTER_MARKER_SIZE_MIN + saturation * (_SCATTER_MARKER_SIZE_MAX - _SCATTER_MARKER_SIZE_MIN)
 
     fig = px.scatter(
         merged_data,
-        x="attempt_count",
-        y="overall_grade",
-        color=merged_data["quiz_name"].astype(str),
+        x="attempt_count_plot",
+        y="overall_grade_plot",
+        color="quiz_name_str",
+        size="_marker_size",
+        size_max=_SCATTER_MARKER_SIZE_MAX,
         color_discrete_sequence=qualitative_colors(colorblind_mode, px.colors.qualitative.Set2),
-        labels={"attempt_count": "No. of Attempts", "overall_grade": y_label, "color": "Quiz"},
+        labels={"attempt_count_plot": "No. of Attempts", "overall_grade_plot": y_label, "quiz_name_str": "Quiz"},
+        custom_data=["attempt_count", "overall_grade"],
     )
-    fig.update_traces(marker=dict(size=14, line=dict(width=1, color="white")))
+    # Hover shows the true (pre-jitter) coordinates — a student's actual attempt count
+    # and grade — never the display-only jittered position.
+    fig.update_traces(
+        marker=dict(opacity=0.65, line=dict(width=1, color="white")),
+        hovertemplate="Attempts: %{customdata[0]}<br>" + y_label + ": %{customdata[1]}<extra></extra>",
+    )
+    # Ticks at true integer attempt counts, not the jittered fractional positions the
+    # points themselves sit at.
+    fig.update_xaxes(tickmode="linear", dtick=1)
     fig.update_layout(title=title, legend_title="Quiz")
     return fig, correlation, y_label, title
 

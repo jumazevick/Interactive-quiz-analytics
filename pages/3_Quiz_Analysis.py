@@ -13,7 +13,7 @@ from analytics.quiz_metrics import (
     compute_quiz_stats,
 )
 from analytics.ui_theme import humanize_column_name, humanize_columns, inject_global_styles
-from analytics.upload_ui import inject_sidebar_css, load_shared_response_df, render_options_panel
+from analytics.upload_ui import inject_sidebar_css, load_shared_response_df, render_options_panel, render_sidebar_bottom_spacer
 
 
 st.set_page_config(
@@ -95,6 +95,8 @@ if show_quiz_linegraph:
         default=["student_count", "attempt_rate", "mean_grade", "grade_variance"],
         format_func=humanize_column_name,
     )
+
+render_sidebar_bottom_spacer()
 
 if uploaded_files:
     if response_df.empty:

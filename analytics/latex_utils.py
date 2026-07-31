@@ -3,6 +3,41 @@ from __future__ import annotations
 import re
 
 
+# Detects a Maxima "question variables" debug/error dump that has leaked into rendered
+# question text. STACK evaluates a question's randomization code (its "Question
+# variables" CAS field) silently — normal question text never shows it — but if that CAS
+# session hits a runtime error on a particular random seed (a domain error, division by
+# zero, an edge case the question author didn't guard against), some STACK versions
+# surface the raw session transcript in the question text shown to the student instead of
+# suppressing it. That transcript is Maxima's own convention for an unsuppressed
+# statement result: `name = value;` chained statement-by-statement. Two or more of those
+# back to back is not something legitimate question prose ever produces on its own — real
+# prose always wraps an inline value in `\(...\)` — so chain length of 2+ is what
+# distinguishes a genuine leaked dump from an ordinary "x = 5" inside the question.
+_MAXIMA_ASSIGNMENT = r"[a-zA-Z_][a-zA-Z0-9_]*\s*:?=\s*[^;=]*"
+_MAXIMA_DUMP_RE = re.compile(r"(?:" + _MAXIMA_ASSIGNMENT + r";\s*){2,}(?:" + _MAXIMA_ASSIGNMENT + r";?)?")
+
+
+def split_stack_debug_dump(text_str: str) -> tuple[str, str]:
+    """Split a leaked Maxima variable-assignment dump off the end of raw question text.
+
+    Returns `(clean_text, dump_text)`. `clean_text` is everything before the first
+    assignment chain — safe to run through `clean_moodle_latex` and render as the
+    question. `dump_text` is the chain onward, kept rather than discarded (a teacher
+    debugging their own STACK question authoring may still want to see it) but meant to
+    go in an optional, out-of-the-way expander rather than rendered inline: it is Maxima
+    statement syntax, not LaTeX, and feeding it to KaTeX/mathtext alongside real math is
+    exactly what produces the partially-rendered, error-highlighted text this exists to
+    prevent. Returns `(text_str, "")` unchanged when no such chain is found.
+    """
+    if not text_str:
+        return text_str, ""
+    match = _MAXIMA_DUMP_RE.search(text_str)
+    if not match:
+        return text_str, ""
+    return text_str[:match.start()].strip(), text_str[match.start():].strip()
+
+
 def clean_moodle_latex(text_str: str, is_header: bool = False) -> str:
     """Normalize raw STACK/Moodle LaTeX so st.markdown renders it as math instead of
     literal escape sequences or broken `$$` collisions.
