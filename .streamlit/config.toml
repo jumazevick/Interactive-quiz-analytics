@@ -1,0 +1,40 @@
+[theme]
+# Monotone design system: grayscale surfaces with a single neutral accent. Light is the
+# default; the dark variant lives in [theme.dark] below. Defining a base variant AND a
+# named alternative is what makes Streamlit show the System/Light/Dark picker in the "⋮"
+# menu at all — with only [theme] set, Streamlit treats theming as fully locked down and
+# hides the picker entirely.
+base = "light"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+baseRadius = "0.75rem"
+buttonRadius = "0.6rem"
+showWidgetBorder = true
+showSidebarBorder = true
+
+primaryColor = "#18181b"
+backgroundColor = "#fafafa"
+secondaryBackgroundColor = "#f0f0f1"
+textColor = "#18181b"
+borderColor = "#e4e4e7"
+linkColor = "#18181b"
+
+[theme.sidebar]
+backgroundColor = "#f2f2f3"
+secondaryBackgroundColor = "#e9e9eb"
+borderColor = "#e4e4e7"
+
+[theme.dark]
+primaryColor = "#52525b"
+backgroundColor = "#0a0a0b"
+secondaryBackgroundColor = "#151517"
+textColor = "#e4e4e7"
+borderColor = "#27272a"
+linkColor = "#d4d4d8"
+
+[theme.dark.sidebar]
+backgroundColor = "#111113"
+secondaryBackgroundColor = "#1a1a1d"
+borderColor = "#27272a"
+
+[client]
+toolbarMode = "auto"

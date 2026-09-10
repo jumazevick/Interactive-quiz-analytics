@@ -4,14 +4,19 @@ import re
 import pandas as pd
 from analytics.parser import (
     parse_response_cell,
+    parse_uploaded_file,
     build_response_rows,
     get_attempt_pools,
     detect_export_type,
     build_grade_breakdown_rows,
     merge_grade_breakdown_rows,
 )
+from analytics.anonymize import anonymize_response_df
+from analytics.latex_utils import clean_moodle_latex
 from analytics.pdf_export import generate_pdf_report
-from pages.Question_Analysis_Section import build_question_analytics
+from analytics.question_details import build_error_drilldown
+from analytics.quiz_metrics import build_quiz_attempt_frame
+from analytics.question_analytics import build_question_analytics
 
 
 def test_parse_response_cell():
@@ -162,11 +167,189 @@ def _tiny_png_bytes() -> bytes:
     return buf.getvalue()
 
 
+def test_question_and_right_answer_columns_are_display_only():
+    # Question i / Right answer i are additional display metadata — scoring must stay
+    # driven entirely by the ans/prt tags in Response i, unaffected by their presence.
+    df_with_metadata = pd.DataFrame([
+        {
+            "Last name": "Doe", "First name": "Jane", "Email address": "jane@example.com",
+            "State": "Finished", "Grade/10.00": "10.00",
+            "Question 1": "<p>What is <b>2+2</b>?</p>", "Response 1": "ans1: 4 [score]; prt1: # = 1 | prt1-1-T", "Right answer 1": "4",
+        },
+        {
+            "Last name": "Smith", "First name": "John", "Email address": "john@example.com",
+            "State": "Finished", "Grade/10.00": "0.00",
+            "Question 1": "What is 2+2?", "Response 1": "ans1: 3 [score]; prt1: # = 0 | prt1-1-F", "Right answer 1": "4",
+        },
+    ])
+    rows_with_metadata = build_response_rows(df_with_metadata, quiz_name="Quiz 1")
+
+    df_without_metadata = df_with_metadata.drop(columns=["Question 1", "Right answer 1"])
+    rows_without_metadata = build_response_rows(df_without_metadata, quiz_name="Quiz 1")
+
+    assert rows_with_metadata["grade"].tolist() == rows_without_metadata["grade"].tolist()
+    assert rows_with_metadata.loc[0, "question_text"] == "What is 2+2 ?"
+    assert rows_with_metadata.loc[0, "right_answer_text"] == "4"
+    assert rows_without_metadata.loc[0, "question_text"] == ""
+    assert rows_without_metadata.loc[0, "right_answer_text"] == ""
+
+
+def test_build_quiz_attempt_frame_collapses_per_question_rows_across_quizzes():
+    response_df = pd.DataFrame([
+        {"quiz_name": "QuizA", "student_name": "S0", "student_id": "s0@example.com", "question": "Q1", "attempt_idx": 0, "overall_grade": 10.0, "completed_dt": pd.Timestamp("2026-07-20"), "started_on": pd.Timestamp("2026-07-20")},
+        {"quiz_name": "QuizA", "student_name": "S0", "student_id": "s0@example.com", "question": "Q2", "attempt_idx": 0, "overall_grade": 10.0, "completed_dt": pd.Timestamp("2026-07-20"), "started_on": pd.Timestamp("2026-07-20")},
+        {"quiz_name": "QuizB", "student_name": "S0", "student_id": "s0@example.com", "question": "Q1", "attempt_idx": 0, "overall_grade": 5.0, "completed_dt": pd.Timestamp("2026-07-21"), "started_on": pd.Timestamp("2026-07-21")},
+    ])
+
+    attempt_frame = build_quiz_attempt_frame(response_df)
+
+    # Two attempts total (one per quiz), even though attempt_idx=0 repeats across quizzes.
+    assert len(attempt_frame) == 2
+    assert set(attempt_frame["quiz_name"]) == {"QuizA", "QuizB"}
+    assert attempt_frame[attempt_frame["quiz_name"] == "QuizA"]["overall_grade"].iloc[0] == 10.0
+    assert attempt_frame[attempt_frame["quiz_name"] == "QuizB"]["overall_grade"].iloc[0] == 5.0
+
+
+class _FakeUploadedFile(io.BytesIO):
+    def __init__(self, content: str, name: str):
+        super().__init__(content.encode("utf-8-sig"))
+        self.name = name
+
+
+def test_parse_uploaded_file_recognizes_alternate_column_names():
+    # Some Moodle exports use "Username"/"Status"/"Started"/"Duration" instead of the
+    # more common "Email address"/"State"/"Started on"/"Time taken". These are just
+    # different labels for the same data, so parsing should treat them equivalently.
+    csv_text = (
+        "Last name,First name,Username,Status,Started,Completed,Duration,Grade/10.00,"
+        "Question 1,Response 1,Right answer 1\n"
+        "Doe,Jane,jane123,Finished,22 July 2026 09:00,22 July 2026 09:05,5 mins,10.00,"
+        "What is 2+2?,ans1: 4 [score]; prt1: # = 1 | prt1-1-T,4\n"
+        "Smith,John,john456,In progress,22 July 2026 09:00,,,,"
+        "What is 2+2?,,\n"
+    )
+    uploaded_file = _FakeUploadedFile(csv_text, "quiz-responses.csv")
+
+    df = parse_uploaded_file(uploaded_file)
+    # Aliases get renamed onto the canonical headers the rest of the parser expects.
+    assert "Email address" in df.columns
+    assert "State" in df.columns
+    assert "Started on" in df.columns
+
+    export_type = detect_export_type(df)
+    assert export_type == "responses"
+
+    rows = build_response_rows(df, quiz_name="Quiz 1")
+    # The "In progress" row (Status column) must be filtered out, same as "State".
+    assert len(rows) == 1
+    assert rows.loc[0, "student_id"] == "jane123"
+    assert rows.loc[0, "student_name"] == "Jane Doe"
+    assert rows.loc[0, "response_status"] == "correct"
+
+
+def _response_row(response_cell: str, grade_col: str = "10.00") -> dict:
+    return {
+        "Last name": "Doe", "First name": "Jane", "Email address": "jane@example.com",
+        "State": "Finished", "Started on": "2026-07-22 09:00:00", "Completed": "2026-07-22 09:05:00",
+        "Grade/10.00": grade_col, "Response 1": response_cell,
+    }
+
+
+def test_revalidated_answer_is_ungraded_not_incorrect():
+    # Real-world bug: STACK can leave a response as `prtK: !` (no fraction) while the
+    # submitted expression is still tagged [valid] -- this happens when a student's input
+    # gets re-validated after their attempt was already scored, so the exported Response
+    # column no longer shows a graded PRT result for it. Treating the missing fraction as
+    # 0 silently invents a wrong answer STACK never actually graded.
+    rows = build_response_rows(pd.DataFrame([
+        _response_row("Seed: 1; ans1: y=3*x+5 [valid]; prt1: !")
+    ]), quiz_name="Quiz 1")
+    assert rows.loc[0, "response_status"] == "ungraded"
+    assert pd.isna(rows.loc[0, "grade"])
+
+
+def test_ungraded_response_is_excluded_from_error_drilldown():
+    # The Question Item Details / Error Drill-Down must not list this student as having
+    # gotten the question wrong -- we simply don't have a graded result for it.
+    rows = build_response_rows(pd.DataFrame([
+        _response_row("Seed: 1; ans1: y=3*x+5 [valid]; prt1: !")
+    ]), quiz_name="Quiz 1")
+    drilldown = build_error_drilldown(rows, "Q1")
+    assert drilldown.empty
+
+
+def test_genuinely_blank_response_stays_blank_not_ungraded():
+    rows = build_response_rows(pd.DataFrame([
+        _response_row("Seed: 1; prt1: !")
+    ]), quiz_name="Quiz 1")
+    assert rows.loc[0, "response_status"] == "blank"
+    assert rows.loc[0, "grade"] == 0.0
+
+
+def test_genuinely_invalid_response_stays_invalid_not_ungraded():
+    rows = build_response_rows(pd.DataFrame([
+        _response_row("Seed: 1; ans1: a*e^pigreco [invalid]; prt1: !")
+    ]), quiz_name="Quiz 1")
+    assert rows.loc[0, "response_status"] == "invalid"
+    assert rows.loc[0, "grade"] == 0.0
+
+
+def test_genuinely_wrong_response_stays_incorrect_not_ungraded():
+    # A real `# = 0` PRT result is a genuine wrong answer -- must not be swept into
+    # "ungraded" just because it's not full marks.
+    rows = build_response_rows(pd.DataFrame([
+        _response_row("Seed: 1; ans1: 4*i-3 [score]; prt1: # = 0 | prt1-0-F")
+    ]), quiz_name="Quiz 1")
+    assert rows.loc[0, "response_status"] == "incorrect"
+    assert rows.loc[0, "grade"] == 0.0
+
+
+def test_clean_moodle_latex_merges_adjacent_inline_runs_without_dollar_collision():
+    # Round-5 regression: naively swapping \( -> $ and \) -> $ independently collides
+    # the closing $ of one run with the opening $ of the next into $$, which Streamlit
+    # then treats as display math. Merging \)\( pairs first must prevent that.
+    raw = r"\({3}\)\(\,{-3} + i{0}\,\)"
+    cleaned = clean_moodle_latex(raw)
+    assert "$$" not in cleaned
+    assert cleaned.count("$") == 2
+
+
+def test_clean_moodle_latex_display_block_and_header_mode():
+    assert clean_moodle_latex(r"\[x^2 + 1 = 0\]") == "$$x^2 + 1 = 0$$"
+    # Header mode can't render multi-line display math or literal newlines.
+    header_input = "Q4: " + r"\[x^2 + 1 = 0\]" + "\ncontinued"
+    header_out = clean_moodle_latex(header_input, is_header=True)
+    assert "$$" not in header_out
+    assert "\n" not in header_out
+
+
+def test_clean_moodle_latex_strips_html_and_displaystyle():
+    cleaned = clean_moodle_latex(r"<p>\(\displaystyle 2+2\)</p>")
+    assert cleaned == "$2+2$"
+
+
+def test_anonymize_response_df_masks_pii_consistently():
+    df = pd.DataFrame([
+        {"student_id": "jane@example.com", "student_name": "Jane Doe", "question": "Q1", "grade": 1.0},
+        {"student_id": "jane@example.com", "student_name": "Jane Doe", "question": "Q2", "grade": 0.0},
+        {"student_id": "john@example.com", "student_name": "John Smith", "question": "Q1", "grade": 0.5},
+    ])
+    anonymized = anonymize_response_df(df)
+
+    # Same real student maps to the same pseudonym everywhere.
+    jane_rows = anonymized[anonymized["student_name"] == anonymized.loc[0, "student_name"]]
+    assert len(jane_rows) == 2
+    assert "jane@example.com" not in anonymized["student_id"].values
+    assert "Jane Doe" not in anonymized["student_name"].values
+    assert anonymized["student_id"].str.endswith("@anonymized.edu").all()
+    assert anonymized["student_name"].str.startswith("Student ").all()
+
+
 def test_pdf_report_embeds_chart_images():
     png_bytes = _tiny_png_bytes()
 
     class FakePlotlyFigure:
-        def to_image(self, format="png", scale=2):
+        def to_image(self, format="png", scale=2, width=None, height=None):
             assert format == "png"
             return png_bytes
 
@@ -192,3 +375,28 @@ def test_pdf_report_embeds_chart_images():
     assert pdf_bytes.startswith(b"%PDF")
 
 
+
+
+def test_prt_heatmap_greys_questions_with_no_prt():
+    """A question with no Potential Response Tree must come out blank (grey) rather than
+    sharing the red 0% cell with a PRT everybody failed. The pass rates themselves stay as
+    they are — the distinction is made at display time."""
+    import pandas as pd
+
+    from analytics.prt_analysis import build_prt_frame, build_prt_pass_heatmap, compute_prt_pass_rates
+
+    rows = pd.DataFrame([
+        {"question": "Q1", "response_text": "Seed: 1; ans1: x^2 [score]; prt1: # = 1 | prt1-1-T", "response_status": "correct"},
+        {"question": "Q1", "response_text": "Seed: 1; ans1: x [score]; prt1: # = 0 | prt1-1-F", "response_status": "incorrect"},
+        {"question": "Q2", "response_text": "Seed: 1; ans1: 42 [score]", "response_status": "incorrect"},
+    ])
+    prt_frame = build_prt_frame(rows)
+    pass_rates = compute_prt_pass_rates(prt_frame)
+
+    # Unchanged: Q2 still has a per-attempt pass rate of 0.
+    assert float(pass_rates.loc[pass_rates["question"] == "Q2", "pass_rate"].iloc[0]) == 0.0
+
+    heatmap = build_prt_pass_heatmap(pass_rates, ["Q1", "Q2"], prt_frame)
+    assert list(heatmap.index) == ["Q1", "Q2"], "every question keeps a row"
+    assert heatmap.loc["Q1", "prt1"] == 50.0
+    assert heatmap.loc["Q2"].isna().all(), "a question with no PRT must be blank, not 0%"

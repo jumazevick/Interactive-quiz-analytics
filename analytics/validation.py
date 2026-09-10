@@ -35,9 +35,11 @@ def audit_question_data(response_df: pd.DataFrame) -> dict[str, Any]:
         checks["syntax_error_count"] = int((response_df["response_status"] == "invalid").sum())
         checks["invalid_count"] = int((response_df["response_status"] == "invalid").sum())
         checks["blank_count"] = int((response_df["response_status"] == "blank").sum())
+        checks["ungraded_count"] = int((response_df["response_status"] == "ungraded").sum())
 
     # Automated Grade Verification / Cross-check (Part 5)
     mismatches = []
+    has_ungraded_rows: list[bool] = []
     if not response_df.empty and "attempt_idx" in response_df.columns and "grade" in response_df.columns and "overall_grade" in response_df.columns:
         for attempt_id, group in response_df.groupby("attempt_idx"):
             calculated_grade = 10.0 * group["grade"].mean()
@@ -45,14 +47,30 @@ def audit_question_data(response_df: pd.DataFrame) -> dict[str, Any]:
             if abs(calculated_grade - actual_grade) >= 0.01:
                 student_name = group["student_name"].iloc[0]
                 mismatches.append(f"Student: {student_name} (Row {attempt_id}) - Calculated={calculated_grade:.2f}, Moodle={actual_grade:.2f}")
+                # `grade` is NaN (excluded from the mean above) for any question left in a
+                # "validated, not (re-)graded" state -- see build_response_rows. A mismatch
+                # on a row that has one of these has a known, specific cause, not just the
+                # generic "manual override" guess.
+                has_ungraded_rows.append(bool((group["response_status"] == "ungraded").any()))
 
     if mismatches:
         import sys
         print(f"Validation warning: Grade mismatch detected in {len(mismatches)} rows:", file=sys.stderr)
         for m in mismatches:
             print(f"  {m}", file=sys.stderr)
-        
-        issues.append("Grade validation notice: Mismatches between calculated question-average scores and Moodle's overall attempt grades were found (likely due to manual grading overrides or regrades in Moodle):")
+
+        if any(has_ungraded_rows):
+            issues.append(
+                "Grade validation notice: Mismatches between calculated question-average scores and "
+                "Moodle's overall attempt grades were found. Some are on rows with one or more "
+                "'ungraded' responses (STACK re-validated an answer after it was already scored, so "
+                "this export's Response column no longer shows a PRT result for it) -- the calculated "
+                "average excludes those questions entirely rather than guessing, so it won't exactly "
+                "match Moodle's own total for that row. Others may be due to manual grading overrides "
+                "or regrades in Moodle:"
+            )
+        else:
+            issues.append("Grade validation notice: Mismatches between calculated question-average scores and Moodle's overall attempt grades were found (likely due to manual grading overrides or regrades in Moodle):")
         for m in mismatches[:10]:  # Show first 10 to avoid UI clutter
             issues.append(f"  • {m}")
         if len(mismatches) > 10:

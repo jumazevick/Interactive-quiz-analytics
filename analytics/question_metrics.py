@@ -62,7 +62,10 @@ def compute_question_metrics(response_df: pd.DataFrame) -> pd.DataFrame:
                 answer_note = prt.get("answer_note") or ""
                 if fraction is not None and fraction < 1.0:
                     total_wrong_prts_b += 1
-                    if re.match(r"^prt\d+-\d+-[TF]$", str(answer_note).strip()):
+                    # PRT name prefix varies by export (e.g. "prt1-1-T" vs "Result-0-T"),
+                    # so match on the trailing "-<index>-<T/F>" shape rather than a
+                    # literal "prt" prefix.
+                    if re.match(r"^\w+-\d+-[TF]$", str(answer_note).strip()):
                         catch_all_count_b += 1
 
         catch_all_share_b = (catch_all_count_b / total_wrong_prts_b * 100.0) if total_wrong_prts_b > 0 else 0.0
