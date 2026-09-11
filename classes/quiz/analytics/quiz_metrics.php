@@ -193,9 +193,14 @@ class quiz_metrics {
      *
      * @param array[] $attemptframe
      * @param string[] $selectedstats
+     * @param array<string, array{facility_index?: float|null, quiz_url?: string}> $quizmetadata
      * @return array[] one row per quiz_name
      */
-    public static function compute_quiz_stats(array $attemptframe, array $selectedstats): array {
+    public static function compute_quiz_stats(
+        array $attemptframe,
+        array $selectedstats,
+        array $quizmetadata = []
+    ): array {
         if (empty($attemptframe)) {
             return [];
         }
@@ -265,8 +270,18 @@ class quiz_metrics {
                 continue;
             }
             $row = ['quiz_name' => $quiz];
+            if (!empty($quizmetadata[$quiz]['quiz_url'])) {
+                $row['quiz_name'] = \html_writer::link(
+                    $quizmetadata[$quiz]['quiz_url'],
+                    format_string($quiz),
+                    ['target' => '_blank', 'rel' => 'noopener']
+                );
+            }
             foreach ($statsbyquiz[$quiz] as $k => $v) {
                 $row[$k] = py_compat::round($v, 2);
+            }
+            if (array_key_exists('facility_index', $quizmetadata[$quiz] ?? [])) {
+                $row['facility_index'] = $quizmetadata[$quiz]['facility_index'];
             }
             $out[] = $row;
         }

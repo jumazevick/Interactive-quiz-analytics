@@ -726,7 +726,7 @@ class local_quizanalytics_quiz_data_fetcher {
             $cm = get_coursemodule_from_instance('quiz', $quiz->id, $course->id, false, MUST_EXIST);
             $context = \context_module::instance($cm->id);
             $stackslots = $DB->get_records_sql(
-                "SELECT DISTINCT slot.slot, slot.maxmark, q.id AS questionid, q.name AS questionname
+                "SELECT DISTINCT slot.id AS slotid, slot.slot, slot.maxmark, q.id AS questionid, q.name AS questionname
                    FROM {quiz_slots} slot
                    JOIN {question_references} qr ON qr.usingcontextid = :contextid
                                                  AND qr.component = 'mod_quiz'
@@ -734,6 +734,11 @@ class local_quizanalytics_quiz_data_fetcher {
                                                  AND qr.itemid = slot.id
                    JOIN {question_bank_entries} qbe ON qbe.id = qr.questionbankentryid
                    JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+                                                 AND qv.version = (
+                                                     SELECT MAX(qvlatest.version)
+                                                       FROM {question_versions} qvlatest
+                                                      WHERE qvlatest.questionbankentryid = qbe.id
+                                                 )
                    JOIN {question} q ON q.id = qv.questionid AND q.qtype = 'stack'
                   WHERE slot.quizid = :quizid
                ORDER BY slot.slot",

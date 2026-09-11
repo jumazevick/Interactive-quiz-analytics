@@ -68,11 +68,12 @@ class local_quizanalytics_section_selector {
             'diagnostics' => get_string('sectiondiagnostics', 'local_quizanalytics'),
         ];
 
-        // Diagnostics Analytics is intentionally not offered here — pending
-        // a redesign, same as Question Analytics's own Solution Process
-        // view (see questionanalytics.php). diagnosticsanalytics.php itself
-        // is untouched and still fully reachable by a direct URL; this only
-        // removes it from this switcher's visible links.
+        // Model Analytics and Diagnostics Analytics are intentionally not
+        // offered here — pending redesigns, same as Question Analytics's own
+        // Solution Process view (see questionanalytics.php). Their pages and
+        // code remain reachable by direct URL; this only removes them from
+        // this switcher's visible links.
+        unset($options['models']);
         unset($options['diagnostics']);
 
         // Rendered as plain links rather than a form+select — there's no

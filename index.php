@@ -143,6 +143,7 @@ sections_output_helper::flush_computing_notice();
 
 $qwcache = cache::make('local_quizanalytics', 'quizanalysiscoursewide');
 $qwkey = local_quizanalytics_quiz_cache_helper::build_key(
+    'course-ui-v4',
     $courseid,
     $coursestats->fingerprint,
     $gradetype,
@@ -196,7 +197,37 @@ if ($result === false) {
     // "may take a while" notice itself was already flushed unconditionally
     // above, before this cache check.
     $previousabort = ignore_user_abort(true);
-    $result = $client->analyze_course($course->fullname, $fetchbyquiz(), $colorblind, $gradetype, $anonymize);
+    $facilityrows = local_quizanalytics_quiz_data_fetcher::get_course_question_facility_data($course, $stackquizzes);
+    $facilitytotals = [];
+    foreach ($facilityrows as $facilityrow) {
+        if ($facilityrow['facility_index'] === null) {
+            continue;
+        }
+        $quizname = $facilityrow['quiz_name'];
+        $facilitytotals[$quizname]['sum'] = ($facilitytotals[$quizname]['sum'] ?? 0.0)
+            + (float) $facilityrow['facility_index'];
+        $facilitytotals[$quizname]['count'] = ($facilitytotals[$quizname]['count'] ?? 0) + 1;
+    }
+    $quizmetadata = [];
+    foreach ($stackquizzes as $quiz) {
+        $quizmetadata[$quiz->name] = [
+            'quiz_url' => (new moodle_url('/local/quizanalytics/questionanalytics.php', [
+                'id' => $courseid,
+                'quizid' => (int) $quiz->id,
+            ]))->out(false),
+        ];
+    }
+    foreach ($facilitytotals as $quizname => $facilitytotal) {
+        $quizmetadata[$quizname]['facility_index'] = round($facilitytotal['sum'] / $facilitytotal['count'], 2);
+    }
+    $result = $client->analyze_course(
+        $course->fullname,
+        $fetchbyquiz(),
+        $colorblind,
+        $gradetype,
+        $anonymize,
+        $quizmetadata
+    );
     if ($result !== null) {
         $qwcache->set($qwkey, $result);
     }
@@ -208,6 +239,25 @@ if ($result === null) {
     echo $OUTPUT->footer();
     exit;
 }
+
+// Explain where the per-question Facility Index comes from and link teachers
+// to the per-quiz Question Analytics view, where the same Moodle-native values
+// are shown for the selected quiz.
+$perquizurl = new moodle_url('/local/quizanalytics/questionanalytics.php', ['id' => $courseid]);
+foreach ($result['sections'] as &$section) {
+    if (($section['id'] ?? '') === 'quiz-stats') {
+        $section['caption_html'] = 'For each quiz, Moodle calculates a separate Facility Index for every question: '
+            . 'the mean mark earned divided by that question\'s maximum mark, expressed as a percentage, '
+            . 'using finished, non-preview attempts. These values are read from Moodle\'s own Quiz Statistics '
+            . 'calculation, so this course-wide table does not replace them with one averaged quiz score. '
+            . html_writer::link($perquizurl, 'Open the per-quiz Question Analytics view to inspect them', [
+                'target' => '_blank',
+                'rel' => 'noopener',
+            ]);
+        break;
+    }
+}
+unset($section);
 
 echo sections_output_helper::render_containers('qw');
 echo sections_output_helper::render_vendor_and_payload('qw', $result);

@@ -46,6 +46,7 @@ class course_analysis {
      * engagement, scatter, and metric-trend sections across every quiz passed in.
      *
      * @param array<string, array[]> $quizzes quiz_name => records[]
+     * @param array<string, array{facility_index?: float|null, quiz_url?: string}> $quizmetadata
      * @return array{summary: array, sections: array[]}
      */
     public static function build_analysis(
@@ -55,7 +56,8 @@ class course_analysis {
         ?array $selectedstats = null,
         ?array $selectedmetrics = null,
         string $gradetype = self::DEFAULT_GRADE_TYPE,
-        bool $anonymize = false
+        bool $anonymize = false,
+        array $quizmetadata = []
     ): array {
         $combined = [];
         foreach ($quizzes as $quizname => $records) {
@@ -77,7 +79,7 @@ class course_analysis {
         $selectedstats = !empty($selectedstats) ? $selectedstats : self::DEFAULT_QUIZ_STATS;
         $selectedmetrics = !empty($selectedmetrics) ? $selectedmetrics : self::DEFAULT_QUIZ_METRICS;
 
-        $statsrows = quiz_metrics::compute_quiz_stats($attemptframe, $selectedstats);
+        $statsrows = quiz_metrics::compute_quiz_stats($attemptframe, $selectedstats, $quizmetadata);
 
         $sections = [];
 
@@ -85,6 +87,10 @@ class course_analysis {
             'id' => 'attempt-list',
             'title' => 'Student Quiz Summary',
             'caption' => 'Summary of each student\'s attempts and grades for every STACK quiz in the course.',
+            'column_help' => [
+                'first_grade' => 'The grade from the student\'s earliest recorded attempt, ordered by completion time.',
+                'latest_grade' => 'The grade from the student\'s most recent recorded attempt, ordered by completion time.',
+            ],
             'table' => table_helpers::to_table(
                 quiz_metrics::build_student_quiz_summary($attemptframe)
             ),
@@ -92,15 +98,22 @@ class course_analysis {
 
         $sections[] = [
             'id' => 'quiz-stats',
-            'title' => '2. Summary of Quiz Stats',
+            'title' => 'Summary of Quiz Stats',
             'caption' => 'Aggregated statistics per quiz, combined across the course.',
+            'column_help' => [
+                'grade_variance' => 'Shows how spread out the grades are: a higher value means students received more different grades.',
+                'mean_highest_grade' => 'The average of each student\'s best grade on this quiz.',
+                'attempt_count' => 'The total number of attempts submitted by all students.',
+                'attempt_rate' => 'The average number of attempts per student: total attempts divided by students with attempts.',
+                'facility_index' => 'The average percentage of maximum marks earned across the quiz\'s questions, using Moodle\'s per-question values.',
+            ],
             'table' => table_helpers::to_table($statsrows),
         ];
 
         $boxfig = quiz_metrics::build_boxplot_figure($attemptframe, $colorblindmode);
         $sections[] = [
             'id' => 'boxplot',
-            'title' => '3. Quiz Grade Distribution (Box Plot)',
+            'title' => 'Quiz Grade Distribution (Box Plot)',
             'caption' => 'Spread of grades per quiz, with mean grade overlay.',
             'charts' => [['id' => 'boxplot-fig', 'title' => null, 'plotly_json' => $boxfig]],
         ];
@@ -109,7 +122,7 @@ class course_analysis {
         if ($engagementfig !== null) {
             $sections[] = [
                 'id' => 'engagement',
-                'title' => '4. Engagement Over Time',
+                'title' => 'Engagement Over Time',
                 'caption' => 'Density of quiz attempt start times per quiz, combined across the course.',
                 'charts' => [['id' => 'engagement-fig', 'title' => null, 'plotly_json' => $engagementfig]],
             ];
@@ -132,7 +145,7 @@ class course_analysis {
             $scatterresult = $scattervariants[$selectedtype];
             $sections[] = [
                 'id' => 'scatter',
-                'title' => '5. Scatter Plot: Attempts vs Grades',
+                'title' => 'Scatter Plot: Attempts vs Grades',
                 'caption' => $scatterresult['caption'],
                 'scatter_variants' => $scattervariants,
                 'selected_scatter_type' => $selectedtype,
@@ -145,7 +158,7 @@ class course_analysis {
             $trendfig = quiz_metrics::build_line_graph_figure($trenddata, $colorblindmode);
             $sections[] = [
                 'id' => 'trend',
-                'title' => '6. Line Graph of Various Metrics',
+            'title' => 'Line Graph of Various Metrics',
                 'caption' => 'Trend of selected metrics across quizzes.',
                 'table' => table_helpers::to_table($trenddata),
                 'charts' => [['id' => 'trend-fig', 'title' => null, 'plotly_json' => $trendfig]],

@@ -82,6 +82,7 @@ class local_quizanalytics_quiz_api_client {
      *                    "Minimum Grade" — null lets the service apply its
      *                    own default (Average Grade).
      * @param bool $anonymize
+     * @param array<string, array{facility_index?: float|null, quiz_url?: string}> $quizmetadata
      * @return array|null
      */
     public function analyze_course(
@@ -89,7 +90,8 @@ class local_quizanalytics_quiz_api_client {
         array $quizzes,
         bool $colorblindmode = false,
         ?string $gradetype = null,
-        bool $anonymize = false
+        bool $anonymize = false,
+        array $quizmetadata = []
     ): ?array {
         try {
             return \local_quizanalytics\quiz\analytics\course_analysis::build_analysis(
@@ -99,7 +101,8 @@ class local_quizanalytics_quiz_api_client {
                 null,
                 null,
                 $gradetype ?? \local_quizanalytics\quiz\analytics\course_analysis::DEFAULT_GRADE_TYPE,
-                $anonymize
+                $anonymize,
+                $quizmetadata
             );
         } catch (\Throwable $e) {
             debugging(

@@ -452,8 +452,30 @@
         }
         if (section.caption) {
             var caption = document.createElement('p');
-            caption.textContent = section.caption;
+            if (section.caption_html) {
+                caption.innerHTML = section.caption_html;
+            } else {
+                caption.textContent = section.caption;
+            }
             wrapper.appendChild(caption);
+        }
+        if (section.column_help) {
+            var help = document.createElement('details');
+            help.className = 'mb-3';
+            var summary = document.createElement('summary');
+            summary.textContent = 'Column guide';
+            help.appendChild(summary);
+            var helpList = document.createElement('ul');
+            Object.keys(section.column_help).forEach(function (column) {
+                var item = document.createElement('li');
+                var label = document.createElement('strong');
+                label.textContent = humanizeLabel(column) + ': ';
+                item.appendChild(label);
+                item.appendChild(document.createTextNode(section.column_help[column]));
+                helpList.appendChild(item);
+            });
+            help.appendChild(helpList);
+            wrapper.appendChild(help);
         }
         if (section.table) {
             renderDataTable(wrapper, section.table);
