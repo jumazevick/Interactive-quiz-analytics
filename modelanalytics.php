@@ -174,13 +174,7 @@ echo html_writer::div($OUTPUT->render($viewselector), 'mb-3');
 // teacher preference for anonymization across every section of this
 // plugin, not a separate on/off switch per page. Only meaningful on Model 1
 // (Model 2's table is per-question, with no student names to anonymize).
-$anonymizeparam = optional_param('anonymize', null, PARAM_INT);
-if ($anonymizeparam !== null) {
-    set_user_preference('local_quizanalytics_anonymize', (bool) $anonymizeparam);
-    $anonymize = (bool) $anonymizeparam;
-} else {
-    $anonymize = (bool) get_user_preferences('local_quizanalytics_anonymize', false);
-}
+$anonymize = (bool) optional_param('anonymize', 0, PARAM_INT);
 
 if ($view === 'model1') {
     echo html_writer::start_tag('form', [

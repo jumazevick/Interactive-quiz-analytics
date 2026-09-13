@@ -103,16 +103,9 @@ if (empty($slots)) {
 // Per-question, like Model 2 — narrows the report to one quiz at a time.
 $quizid = optional_param('quizid', 0, PARAM_INT);
 
-// Shares its user preference and lang string with every other section's own
-// anonymize toggle — one teacher preference across the whole plugin, not a
-// separate on/off switch per page.
-$anonymizeparam = optional_param('anonymize', null, PARAM_INT);
-if ($anonymizeparam !== null) {
-    set_user_preference('local_quizanalytics_anonymize', (bool) $anonymizeparam);
-    $anonymize = (bool) $anonymizeparam;
-} else {
-    $anonymize = (bool) get_user_preferences('local_quizanalytics_anonymize', false);
-}
+// Anonymization is request-controlled only. An old stored preference must
+// never silently change the display of a new report.
+$anonymize = (bool) optional_param('anonymize', 0, PARAM_INT);
 
 $quiznames = $DB->get_records_menu('quiz', ['course' => $courseid], '', 'id, name');
 $slotsperquiz = [];

@@ -291,19 +291,16 @@ class sections_output_helper {
     }
 
     /**
-     * Reads (and, if a new value was submitted, persists) the anonymize
-     * student data preference. Shared across every view so a teacher's
-     * choice is consistent everywhere rather than set per-page.
+     * Reads the anonymize flag from the current request.
+     *
+     * Anonymization is deliberately not persisted: the default must always
+     * be real student labels, and anonymization is enabled only when the
+     * current form submission explicitly sends anonymize=1.
      *
      * @return bool
      */
     public static function resolve_anonymize_mode(): bool {
-        $param = optional_param('anonymize', null, PARAM_INT);
-        if ($param !== null) {
-            \set_user_preference('local_quizanalytics_anonymize', (bool) $param);
-            return (bool) $param;
-        }
-        return (bool) \get_user_preferences('local_quizanalytics_anonymize', false);
+        return (bool) optional_param('anonymize', 0, PARAM_INT);
     }
 
     /**
