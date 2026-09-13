@@ -347,8 +347,17 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
         }
 
         $cache = \cache::make('local_quizanalytics', 'quizanalysiscoursewide');
-        $key = \local_quizanalytics_quiz_cache_helper::build_key($courseid, $coursestats->fingerprint, $gradetype, $colorblind, $anonymize);
-        if ($cache->get($key) !== false) {
+        $key = \local_quizanalytics_quiz_cache_helper::build_key(
+            'course-ui-v4', $courseid, $coursestats->fingerprint, $gradetype, $colorblind, $anonymize
+        );
+        $existing = $cache->get($key);
+        if ($existing !== false) {
+            // Keep the stable fallback populated even when this exact
+            // fingerprint was already warmed by another path.
+            $latestkey = \local_quizanalytics_quiz_cache_helper::build_key(
+                'course-ui-latest-v1', $courseid, $gradetype, $colorblind, $anonymize
+            );
+            $cache->set($latestkey, $existing);
             return;
         }
 
@@ -371,6 +380,10 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
         $result = $client->analyze_course($course->fullname, $byquiz, $colorblind, $gradetype, $anonymize);
         if ($result !== null) {
             $cache->set($key, $result);
+            $latestkey = \local_quizanalytics_quiz_cache_helper::build_key(
+                'course-ui-latest-v1', $courseid, $gradetype, $colorblind, $anonymize
+            );
+            $cache->set($latestkey, $result);
         }
     }
 }

@@ -56,21 +56,7 @@ defined('MOODLE_INTERNAL') || die();
  * @param context_course $context
  */
 function local_quizanalytics_extend_navigation_course($navigation, $course, $context) {
-    global $CFG;
-
     if (!has_capability('local/quizanalytics:view', $context)) {
-        return;
-    }
-
-    require_once($CFG->dirroot . '/local/quizanalytics/classes/quiz/data_fetcher.php');
-
-    // The one genuinely expensive-ish check here: does this course have any
-    // STACK quiz at all? Gate on it so the tab never clutters courses that
-    // have nothing for either section of this plugin to show — both source
-    // plugins' own "does this course have STACK content" checks resolve to
-    // the same underlying quiz_slots-joined-to-a-STACK-question query, so
-    // one gate covers both sections.
-    if (!local_quizanalytics_quiz_data_fetcher::course_has_stack_quiz($course->id)) {
         return;
     }
 
@@ -111,8 +97,6 @@ function local_quizanalytics_extend_navigation_course($navigation, $course, $con
  * @param \context $context the current page's context
  */
 function local_quizanalytics_extend_settings_navigation($settingsnav, $context) {
-    global $CFG;
-
     if ($context->contextlevel != CONTEXT_MODULE) {
         return;
     }
@@ -124,11 +108,6 @@ function local_quizanalytics_extend_settings_navigation($settingsnav, $context) 
 
     $coursecontext = context_course::instance($cm->course);
     if (!has_capability('local/quizanalytics:view', $coursecontext)) {
-        return;
-    }
-
-    require_once($CFG->dirroot . '/local/quizanalytics/classes/quiz/data_fetcher.php');
-    if (!local_quizanalytics_quiz_data_fetcher::quiz_has_stack_question($cm->instance)) {
         return;
     }
 
