@@ -82,6 +82,8 @@ require_once($CFG->dirroot . '/local/quizanalytics/classes/task/parallel_course_
  * Ad-hoc task: warm one specific quiz or course-wide view.
  */
 class warm_single_view_adhoc_task extends \core\task\adhoc_task {
+    /** Selection currently being processed by this PHP task. */
+    private static string $progressselectionkey = '';
     /**
      * How long a matching queued task can sit unstarted/unfinished before
      * get_queued_age_seconds()'s caller should stop showing the ordinary
@@ -146,18 +148,22 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
      * @param bool $anonymize
      */
     public static function dispatch_for_course(
-        int $courseid, string $gradetype, bool $colorblind, bool $anonymize, ?string $fingerprint = null
+        int $courseid, string $gradetype, bool $colorblind, bool $anonymize, ?string $fingerprint = null,
+        ?array $quizids = null
     ): void {
         $customdata = [
             'type' => 'course',
             'id' => $courseid,
             'gradetype' => $gradetype,
+            'fingerprint' => $fingerprint,
             'colorblind' => $colorblind,
             'anonymize' => $anonymize,
+            'quizids' => $quizids === null ? [] : array_map('intval', $quizids),
         ];
         if ($fingerprint !== null) {
-            $customdata['fingerprint'] = $fingerprint;
-            $current = self::get_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize);
+            $selectionkey = \local_quizanalytics_quiz_cache_helper::selection_key($customdata['quizids']);
+            self::$progressselectionkey = $selectionkey;
+            $current = self::get_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize, $selectionkey);
             if ($current === false || ($current['status'] ?? '') !== 'running') {
                 self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,
                     'queued', 'queued', 0, 0, get_string('progressqueued', 'local_quizanalytics'));
@@ -168,19 +174,22 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
 
     /** Return the shared progress-cache key for a course computation. */
     public static function progress_key(
-        int $courseid, string $fingerprint, string $gradetype, bool $colorblind, bool $anonymize
+        int $courseid, string $fingerprint, string $gradetype, bool $colorblind, bool $anonymize,
+        ?string $selectionkey = null
     ): string {
+        $selectionkey = $selectionkey ?? (self::$progressselectionkey ?: 'all');
         return \local_quizanalytics_quiz_cache_helper::build_key(
-            'course-progress-v1', $courseid, $fingerprint, $gradetype, $colorblind, $anonymize
+            'course-progress-v2', $courseid, $fingerprint, $selectionkey, $gradetype, $colorblind, $anonymize
         );
     }
 
     /** Return the latest progress snapshot, or false when none exists. */
     public static function get_progress(
-        int $courseid, string $fingerprint, string $gradetype, bool $colorblind, bool $anonymize
+        int $courseid, string $fingerprint, string $gradetype, bool $colorblind, bool $anonymize,
+        ?string $selectionkey = null
     ) {
         $cache = \cache::make('local_quizanalytics', 'analyticsprogress');
-        return $cache->get(self::progress_key($courseid, $fingerprint, $gradetype, $colorblind, $anonymize));
+        return $cache->get(self::progress_key($courseid, $fingerprint, $gradetype, $colorblind, $anonymize, $selectionkey));
     }
 
     /** Write one small progress snapshot; this never performs analytics work. */
@@ -307,7 +316,8 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
                     (bool) $data->colorblind,
                     (bool) $data->anonymize,
                     $client,
-                    isset($data->fingerprint) ? (string) $data->fingerprint : null
+                    isset($data->fingerprint) ? (string) $data->fingerprint : null,
+                    isset($data->quizids) ? array_map('intval', (array) $data->quizids) : null
                 );
         }
     }
@@ -391,7 +401,8 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
      * @param \local_quizanalytics_quiz_api_client $client
      */
     private function warm_course_view(
-        int $courseid, string $gradetype, bool $colorblind, bool $anonymize, $client, ?string $fingerprint = null
+        int $courseid, string $gradetype, bool $colorblind, bool $anonymize, $client, ?string $fingerprint = null,
+        ?array $quizids = null
     ): void {
         global $DB;
 
@@ -403,6 +414,14 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
         if (empty($stackquizzes)) {
             return;
         }
+        if ($quizids !== null && !empty($quizids)) {
+            $wanted = array_flip(array_map('intval', $quizids));
+            $stackquizzes = array_filter($stackquizzes, fn($quiz) => isset($wanted[(int) $quiz->id]));
+        }
+        $selectionkey = \local_quizanalytics_quiz_cache_helper::selection_key(
+            array_map(fn($quiz) => (int) $quiz->id, $stackquizzes)
+        );
+        self::$progressselectionkey = $selectionkey;
 
         $coursestats = \local_quizanalytics_quiz_cache_helper::stats_for_quizzes($stackquizzes);
         if ($coursestats->count === 0) {
@@ -412,14 +431,14 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
         $cache = \cache::make('local_quizanalytics', 'quizanalysiscoursewide');
         $fingerprint = $coursestats->fingerprint;
         $key = \local_quizanalytics_quiz_cache_helper::build_key(
-            'course-ui-v4', $courseid, $coursestats->fingerprint, $gradetype, $colorblind, $anonymize
+            'course-ui-v5', $courseid, $coursestats->fingerprint, $selectionkey, $gradetype, $colorblind, $anonymize
         );
         $existing = $cache->get($key);
         if ($existing !== false) {
             // Keep the stable fallback populated even when this exact
             // fingerprint was already warmed by another path.
             $latestkey = \local_quizanalytics_quiz_cache_helper::build_key(
-                'course-ui-latest-v1', $courseid, $gradetype, $colorblind, $anonymize
+                'course-ui-latest-v2', $courseid, $selectionkey, $gradetype, $colorblind, $anonymize
             );
             $cache->set($latestkey, $existing);
             self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,
@@ -506,7 +525,7 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
                 get_string('progresssaving', 'local_quizanalytics'));
             $cache->set($key, $result);
             $latestkey = \local_quizanalytics_quiz_cache_helper::build_key(
-                'course-ui-latest-v1', $courseid, $gradetype, $colorblind, $anonymize
+                'course-ui-latest-v2', $courseid, $selectionkey, $gradetype, $colorblind, $anonymize
             );
             $cache->set($latestkey, $result);
             self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,

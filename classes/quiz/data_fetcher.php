@@ -130,6 +130,30 @@ class local_quizanalytics_quiz_data_fetcher {
     public static function get_course_stack_quizzes(int $courseid): array {
         global $DB;
 
+        $modinfo = get_fast_modinfo($courseid);
+        $orderedquizids = [];
+        $quizsections = [];
+        foreach ($modinfo->get_section_info_all() as $section) {
+            // section_info::get_sequence() is private in current Moodle
+            // releases; fast_modinfo exposes the same displayed module order
+            // through its public sections map.
+            foreach (($modinfo->sections[$section->section] ?? []) as $cmid) {
+                $cm = $modinfo->get_cm($cmid);
+                if ($cm->modname !== 'quiz') {
+                    continue;
+                }
+                $orderedquizids[] = (int) $cm->instance;
+                $quizsections[(int) $cm->instance] = [
+                    'sectionnum' => (int) $section->section,
+                    'sectionname' => (string) ($section->name ?? ''),
+                    'cmid' => (int) $cm->id,
+                ];
+            }
+        }
+        if (empty($orderedquizids)) {
+            return [];
+        }
+
         // Ordered chronologically (quiz.timeopen when the teacher set one,
         // falling back to when the activity was added to the course
         // otherwise) rather than alphabetically — a course-wide chart
@@ -138,6 +162,7 @@ class local_quizanalytics_quiz_data_fetcher {
         // columns feeding the COALESCE have to appear in the SELECT list
         // (aliased) since this is a SELECT DISTINCT and Postgres requires
         // every ORDER BY expression to be one of the selected columns.
+        [$quizinsql, $quizparams] = $DB->get_in_or_equal($orderedquizids, SQL_PARAMS_NAMED, 'quizid');
         $sql = "SELECT DISTINCT quiz.id, quiz.name, quiz.course, quiz.sumgrades, quiz.grade,
                        COALESCE(NULLIF(quiz.timeopen, 0), cm.added) AS chronoorder
                   FROM {quiz} quiz
@@ -153,12 +178,24 @@ class local_quizanalytics_quiz_data_fetcher {
                   JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
                   JOIN {question} q ON q.id = qv.questionid AND q.qtype = 'stack'
                  WHERE quiz.course = :courseid
-              ORDER BY chronoorder, quiz.name";
+                   AND quiz.id " . $quizinsql;
 
-        return $DB->get_records_sql($sql, [
+        $params = [
             'contextmodule' => CONTEXT_MODULE,
             'courseid'      => $courseid,
-        ]);
+        ] + $quizparams;
+        $records = $DB->get_records_sql($sql, $params);
+        $ordered = [];
+        foreach ($orderedquizids as $quizid) {
+            if (!isset($records[$quizid])) {
+                continue;
+            }
+            $records[$quizid]->sectionnum = $quizsections[$quizid]['sectionnum'];
+            $records[$quizid]->sectionname = $quizsections[$quizid]['sectionname'];
+            $records[$quizid]->cmid = $quizsections[$quizid]['cmid'];
+            $ordered[$quizid] = $records[$quizid];
+        }
+        return $ordered;
     }
 
     /**

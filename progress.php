@@ -10,6 +10,11 @@ $fingerprint = required_param('fingerprint', PARAM_ALPHANUM);
 $gradetype = optional_param('gradetype', 'Average Grade', PARAM_TEXT);
 $colorblind = optional_param('colorblind', 0, PARAM_BOOL);
 $anonymize = optional_param('anonymize', 0, PARAM_BOOL);
+$quizidsparam = optional_param('quizids', '', PARAM_RAW);
+$quizids = $quizidsparam === '' ? [] : array_values(array_unique(array_filter(
+    array_map('intval', explode(',', $quizidsparam))
+)));
+$selectionkey = local_quizanalytics_quiz_cache_helper::selection_key($quizids);
 
 $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 require_login($course);
@@ -17,7 +22,7 @@ $context = context_course::instance($courseid);
 require_capability('local/quizanalytics:view', $context);
 
 $progress = \local_quizanalytics\task\warm_single_view_adhoc_task::get_progress(
-    $courseid, $fingerprint, $gradetype, $colorblind, $anonymize
+    $courseid, $fingerprint, $gradetype, $colorblind, $anonymize, $selectionkey
 );
 
 if ($progress === false) {

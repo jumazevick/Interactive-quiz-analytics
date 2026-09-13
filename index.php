@@ -59,7 +59,7 @@ $PAGE->set_context($context);
 $PAGE->set_title($course->shortname . ': ' . get_string('pagetitle', 'local_quizanalytics'));
 $PAGE->set_heading($course->fullname);
 
-$stackquizzes = local_quizanalytics_quiz_data_fetcher::get_course_stack_quizzes($course->id);
+$allstackquizzes = local_quizanalytics_quiz_data_fetcher::get_course_stack_quizzes($course->id);
 
 echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('pagemaintitle', 'local_quizanalytics'));
@@ -90,7 +90,7 @@ if (count($viewablecourses) > 1) {
     echo html_writer::div($OUTPUT->render($courseselector), 'mb-3');
 }
 
-if (empty($stackquizzes)) {
+if (empty($allstackquizzes)) {
     echo $OUTPUT->notification(get_string('nostackquizzes', 'local_quizanalytics'), 'notifymessage');
     echo $OUTPUT->footer();
     exit;
@@ -99,6 +99,76 @@ if (empty($stackquizzes)) {
 $colorblind = sections_output_helper::resolve_colorblind_mode();
 $anonymize = sections_output_helper::resolve_anonymize_mode();
 echo sections_output_helper::render_options_toggles($colorblind, $anonymize);
+
+$quizidsparam = optional_param('quizids', null, PARAM_RAW);
+$selectionprovided = $quizidsparam !== null;
+$requestedquizids = $selectionprovided
+    ? array_values(array_unique(array_filter(array_map('intval', explode(',', (string) $quizidsparam)))))
+    : array_map('intval', array_keys($allstackquizzes));
+$availableids = array_map('intval', array_keys($allstackquizzes));
+$selectedids = array_values(array_intersect($availableids, $requestedquizids));
+$stackquizzes = [];
+foreach ($allstackquizzes as $quizid => $quiz) {
+    if (in_array((int) $quizid, $selectedids, true)) {
+        $stackquizzes[$quizid] = $quiz;
+    }
+}
+
+$selectionform = html_writer::start_tag('form', [
+    'method' => 'get', 'action' => (new moodle_url('/local/quizanalytics/index.php'))->out(false),
+    'id' => 'local-quizanalytics-quiz-selection', 'class' => 'mb-4',
+]);
+$selectionform .= html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'id', 'value' => $courseid]);
+$selectionform .= html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'colorblind', 'value' => $colorblind ? 1 : 0]);
+$selectionform .= html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'anonymize', 'value' => $anonymize ? 1 : 0]);
+$selectionform .= html_writer::empty_tag('input', [
+    'type' => 'hidden', 'name' => 'quizids', 'id' => 'local-quizanalytics-quizids',
+    'value' => implode(',', $selectedids),
+]);
+$selectionform .= html_writer::tag('strong', get_string('quizzesselection', 'local_quizanalytics'));
+$selectionform .= ' ' . html_writer::tag('button', get_string('selectall', 'local_quizanalytics'), [
+    'type' => 'button', 'id' => 'local-quizanalytics-select-all', 'class' => 'btn btn-link btn-sm',
+]);
+$selectionform .= ' ' . html_writer::tag('button', get_string('clearall', 'local_quizanalytics'), [
+    'type' => 'button', 'id' => 'local-quizanalytics-clear-all', 'class' => 'btn btn-link btn-sm',
+]);
+$selectionform .= html_writer::start_tag('details', ['class' => 'mt-2', 'open' => 'open']);
+$selectionform .= html_writer::tag('summary', get_string('selectquizzes', 'local_quizanalytics'));
+$lastsection = null;
+foreach ($allstackquizzes as $quizid => $quiz) {
+    $sectionkey = (int) ($quiz->sectionnum ?? 0);
+    if ($sectionkey !== $lastsection) {
+        if ($lastsection !== null) {
+            $selectionform .= html_writer::end_tag('div');
+        }
+        $sectionlabel = $quiz->sectionname !== ''
+            ? format_string($quiz->sectionname)
+            : get_string('section') . ' ' . $sectionkey;
+        $selectionform .= html_writer::tag('div', $sectionlabel, ['class' => 'font-weight-bold mt-2']);
+        $selectionform .= html_writer::start_tag('div', ['class' => 'ml-3']);
+        $lastsection = $sectionkey;
+    }
+    $checked = in_array((int) $quizid, $selectedids, true) ? ['checked' => 'checked'] : [];
+    $checkbox = html_writer::empty_tag('input', array_merge([
+        'type' => 'checkbox', 'class' => 'local-quizanalytics-quiz-choice',
+        'value' => (int) $quizid,
+    ], $checked));
+    $selectionform .= html_writer::div($checkbox . ' ' . format_string($quiz->name), 'form-check');
+}
+if ($lastsection !== null) {
+    $selectionform .= html_writer::end_tag('div');
+}
+$selectionform .= html_writer::end_tag('details');
+$selectionform .= html_writer::div('', '', ['id' => 'local-quizanalytics-selection-count', 'class' => 'small text-muted mt-2']);
+$selectionform .= html_writer::end_tag('form');
+$selectionform .= html_writer::script("(function(){const f=document.getElementById('local-quizanalytics-quiz-selection');if(!f)return;const h=document.getElementById('local-quizanalytics-quizids');const c=()=>Array.from(f.querySelectorAll('.local-quizanalytics-quiz-choice:checked')).map(x=>x.value);let timer;const submit=()=>{h.value=c().join(',');clearTimeout(timer);timer=setTimeout(()=>f.submit(),350);};const count=()=>{document.getElementById('local-quizanalytics-selection-count').textContent='" . get_string('showingquizzes', 'local_quizanalytics') . "'.replace('{$a}',c().length).replace('{total}'," . count($allstackquizzes) . ");};f.querySelectorAll('.local-quizanalytics-quiz-choice').forEach(x=>x.addEventListener('change',()=>{count();submit();}));document.getElementById('local-quizanalytics-select-all').addEventListener('click',()=>{f.querySelectorAll('.local-quizanalytics-quiz-choice').forEach(x=>x.checked=true);count();submit();});document.getElementById('local-quizanalytics-clear-all').addEventListener('click',()=>{f.querySelectorAll('.local-quizanalytics-quiz-choice').forEach(x=>x.checked=false);count();submit();});count();})();");
+echo $selectionform;
+
+if (empty($stackquizzes)) {
+    echo $OUTPUT->notification(get_string('noquizzesselected', 'local_quizanalytics'), 'notifymessage');
+    echo $OUTPUT->footer();
+    exit;
+}
 
 $client = new local_quizanalytics_quiz_api_client();
 
@@ -132,13 +202,14 @@ $fetchbyquiz = function () use ($course, $stackquizzes): array {
 // computes every variant up front (see course_analysis::build_analysis())
 // so switching between them doesn't reload the page.
 $gradetype = \local_quizanalytics\quiz\analytics\course_analysis::DEFAULT_GRADE_TYPE;
+$selectionkey = local_quizanalytics_quiz_cache_helper::selection_key(array_keys($stackquizzes));
 
-// Shown unconditionally here, before the cache lookup below — matching
 $qwcache = cache::make('local_quizanalytics', 'quizanalysiscoursewide');
 $qwkey = local_quizanalytics_quiz_cache_helper::build_key(
-    'course-ui-v4',
+    'course-ui-v5',
     $courseid,
     $coursestats->fingerprint,
+    $selectionkey,
     $gradetype,
     $colorblind,
     $anonymize
@@ -146,7 +217,7 @@ $qwkey = local_quizanalytics_quiz_cache_helper::build_key(
 $progressurl = (new moodle_url('/local/quizanalytics/progress.php', [
     'id' => $courseid, 'fingerprint' => $coursestats->fingerprint,
     'gradetype' => $gradetype, 'colorblind' => (int) $colorblind,
-    'anonymize' => (int) $anonymize,
+    'anonymize' => (int) $anonymize, 'quizids' => implode(',', array_keys($stackquizzes)),
 ]))->out(false);
 $renderprogress = function () use ($progressurl): void {
     global $PAGE;
@@ -172,12 +243,12 @@ if ($result === false) {
     // fingerprint is being recomputed in the background. A previous report
     // is more useful to a lecturer than an empty page during a large rebuild.
     $latestkey = local_quizanalytics_quiz_cache_helper::build_key(
-        'course-ui-latest-v1', $courseid, $gradetype, $colorblind, $anonymize
+        'course-ui-latest-v2', $courseid, $selectionkey, $gradetype, $colorblind, $anonymize
     );
     $latestresult = $qwcache->get($latestkey);
     if ($latestresult !== false) {
         \local_quizanalytics\task\warm_single_view_adhoc_task::dispatch_for_course(
-            $courseid, $gradetype, $colorblind, $anonymize, $coursestats->fingerprint
+            $courseid, $gradetype, $colorblind, $anonymize, $coursestats->fingerprint, array_keys($stackquizzes)
         );
         $result = $latestresult;
         $showingstale = true;
@@ -191,12 +262,13 @@ if ($result === false) {
     // repeats expensive STACK work before the request decides to defer.
     if ($coursestats->count > 100) {
         \local_quizanalytics\task\warm_single_view_adhoc_task::dispatch_for_course(
-            $courseid, $gradetype, $colorblind, $anonymize, $coursestats->fingerprint
+            $courseid, $gradetype, $colorblind, $anonymize, $coursestats->fingerprint, array_keys($stackquizzes)
         );
         $age = \local_quizanalytics\task\warm_single_view_adhoc_task::get_queued_age_seconds([
             'type' => 'course', 'id' => $courseid, 'gradetype' => $gradetype,
             'fingerprint' => $coursestats->fingerprint,
             'colorblind' => $colorblind, 'anonymize' => $anonymize,
+            'quizids' => array_map('intval', array_keys($stackquizzes)),
         ]);
         $renderprogress();
         sections_output_helper::render_generating_in_background_notice($age);
@@ -230,11 +302,12 @@ if ($result === false) {
         // Hand it to a background task and let the visitor come back to a
         // warm cache instead of blocking this request on it.
         \local_quizanalytics\task\warm_single_view_adhoc_task::dispatch_for_course(
-            $courseid, $gradetype, $colorblind, $anonymize, $coursestats->fingerprint
+            $courseid, $gradetype, $colorblind, $anonymize, $coursestats->fingerprint, array_keys($stackquizzes)
         );
         $age = \local_quizanalytics\task\warm_single_view_adhoc_task::get_queued_age_seconds([
             'type' => 'course', 'id' => $courseid, 'gradetype' => $gradetype,
             'fingerprint' => $coursestats->fingerprint, 'colorblind' => $colorblind, 'anonymize' => $anonymize,
+            'quizids' => array_map('intval', array_keys($stackquizzes)),
         ]);
         $renderprogress();
         sections_output_helper::render_generating_in_background_notice($age);

@@ -101,4 +101,9 @@ class local_quizanalytics_quiz_cache_helper {
             $parts
         )));
     }
+
+    /** Stable cache component for an ordered course-quiz selection. */
+    public static function selection_key(array $quizids): string {
+        return md5(implode(',', array_map('intval', array_values($quizids))));
+    }
 }
