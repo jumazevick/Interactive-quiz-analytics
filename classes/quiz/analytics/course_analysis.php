@@ -125,13 +125,24 @@ class course_analysis {
         $sections[] = [
             'id' => 'quiz-stats',
             'title' => 'Summary of Quiz Stats',
-            'caption' => 'Aggregated statistics per quiz, combined across the course.',
+            'caption_html' => 'This table provides a course-wide summary of the selected STACK quizzes. '
+                . 'Grade and attempt measures are calculated from processed finished quiz attempts. '
+                . 'Mean Question Facility Index is calculated by averaging Moodle\'s question-level '
+                . 'Facility Index values for the STACK questions in each quiz. '
+                . 'Click a quiz name to inspect its Question Analytics in more detail. '
+                . html_writer::link(
+                    'https://phpdoc.moodledev.io/4.5/d2/dc2/classquiz__statistics__report.html',
+                    'Moodle Quiz Statistics',
+                    ['target' => '_blank', 'rel' => 'noopener']
+                ) . '.',
             'column_help' => [
-                'grade_variance' => 'Shows how spread out the grades are: a higher value means students received more different grades.',
-                'mean_highest_grade' => 'The average of each student\'s best grade on this quiz.',
-                'attempt_count' => 'The total number of attempts submitted by all students.',
-                'attempt_rate' => 'The average number of attempts per student: total attempts divided by students with attempts.',
-                'facility_index' => 'The average percentage of maximum marks earned across the quiz\'s questions, using Moodle\'s per-question values.',
+                'mean_grade' => 'The average raw mark across processed finished attempts for this quiz. If a student has several finished attempts, each attempt contributes separately.',
+                'grade_variance' => 'The sample variance of the raw marks across processed finished attempts. A higher value means the attempt marks are more spread out around the mean.',
+                'mean_highest_grade' => 'For each student, the plugin takes their highest processed finished attempt mark for the quiz and then averages these best marks across students. This is calculated independently of Moodle\'s configured quiz grading method.',
+                'student_count' => 'The number of unique students represented by the processed finished attempts for this quiz.',
+                'attempt_count' => 'The number of processed finished, non-preview attempts included in the analytics.',
+                'attempt_rate' => 'The average number of processed finished attempts per student. Attempt Rate = No. of Attempts ÷ Student Count.',
+                'facility_index' => 'Mean Question Facility Index = (FI₁ + FI₂ + ... + FIₙ) / n, where FIᵢ is Moodle\'s Facility Index for question i. Moodle calculates Facility Index separately for each question; the plugin takes the simple arithmetic mean of the non-null STACK question Facility Index values in that quiz. These values come from Moodle Quiz Statistics. This is not a Moodle-provided quiz-level Facility Index.',
             ],
             'table' => table_helpers::to_table($statsrows),
         ];

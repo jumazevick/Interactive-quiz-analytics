@@ -52,6 +52,10 @@
         'completed_dt': 'Completed On',
         'first_grade': 'First Grade',
         'latest_grade': 'Latest Grade',
+        'mean_grade': 'Mean Attempt Mark',
+        'grade_variance': 'Attempt Mark Variance',
+        'mean_highest_grade': 'Mean Best Attempt Mark',
+        'facility_index': 'Mean Question Facility Index',
     };
 
     function humanizeLabel(key) {

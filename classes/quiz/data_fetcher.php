@@ -254,22 +254,23 @@ class local_quizanalytics_quiz_data_fetcher {
         $cm = get_coursemodule_from_instance('quiz', $quiz->id, $course->id, false, MUST_EXIST);
         $records = [];
 
-        // Only finished attempts by default — matches what a teacher would
-        // get from the "Responses" report with the default "Finished" state
-        // filter. Pass $includeinprogress to also cover in-progress/overdue
-        // attempts.
+        // Only finished, non-preview attempts by default — matching Moodle's
+        // Quiz Statistics semantics. Pass $includeinprogress to also cover
+        // in-progress attempts, while still excluding previews.
         if ($includeinprogress) {
             $attempts = $DB->get_records_select(
                 'quiz_attempts',
-                "quiz = :quizid AND state IN ('finished', 'inprogress')",
+                "quiz = :quizid AND preview = 0 AND state IN ('finished', 'inprogress')",
                 ['quizid' => $quiz->id],
                 'userid, attempt'
             );
         } else {
-            $attempts = $DB->get_records('quiz_attempts', [
-                'quiz'  => $quiz->id,
-                'state' => 'finished',
-            ], 'userid, attempt');
+            $attempts = $DB->get_records_select(
+                'quiz_attempts',
+                'quiz = :quizid AND preview = 0 AND state = :finished',
+                ['quizid' => $quiz->id, 'finished' => 'finished'],
+                'userid, attempt'
+            );
         }
 
         if (!$attempts) {

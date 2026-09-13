@@ -205,11 +205,14 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
         $previousdetails = is_array($previous) && !empty($previous['details']) ? $previous['details'] : [];
         $percent = $stage === 'complete' ? 100 : ($stage === 'queued' ? 0 : 5);
         if ($stage === 'processing' && $total > 0) {
-            $percent = 10 + (int) round(65 * ($completed / $total));
+            // The bar represents the measured quiz work itself: completed
+            // quizzes divided by total quizzes. Do not add artificial
+            // stage-weight percentages to this unit-of-work progress.
+            $percent = (int) round(100 * ($completed / $total));
         } else if ($stage === 'analyzing') {
-            $percent = 80;
+            $percent = 100;
         } else if ($stage === 'saving') {
-            $percent = 95;
+            $percent = 100;
         }
         $cache->set($key, [
             'status' => $status,
@@ -344,6 +347,9 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
         if (empty($quizzes)) {
             return;
         }
+        $coursestats = \local_quizanalytics_quiz_cache_helper::stats_for_quizzes($quizzes);
+        $fingerprint = $coursestats->fingerprint;
+        self::$progressselectionkey = \local_quizanalytics_quiz_cache_helper::selection_key([]);
 
         $stale = [];
         $statsbyquiz = \local_quizanalytics_quiz_cache_helper::stats_for_quizzes_by_id($quizzes);
@@ -355,22 +361,45 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
             }
         }
         if (empty($stale)) {
+            self::set_progress($courseid, $fingerprint, 'Average Grade', false, false,
+                'complete', 'complete', count($quizzes), count($quizzes),
+                get_string('progresscomplete', 'local_quizanalytics'));
             return;
         }
+
+        self::set_progress($courseid, $fingerprint, 'Average Grade', false, false,
+            'running', 'preparing', 0, count($stale),
+            get_string('progresspreparing', 'local_quizanalytics'));
 
         foreach ($stale as $item) {
             \local_quizanalytics_prepared_store::mark_running($courseid, (int) $item['quiz']->id);
         }
 
         try {
+            $progresscallback = function(int $completed, int $total, array $itemdetails = []) use (
+                $courseid, $fingerprint
+            ): void {
+                self::set_progress($courseid, $fingerprint, 'Average Grade', false, false,
+                    'running', 'processing', $completed, $total,
+                    get_string('progressprocessing', 'local_quizanalytics', (object) [
+                        'completed' => $completed, 'total' => $total,
+                    ]), [
+                        'last_item' => $itemdetails['item'] ?? 'worker chunk',
+                        'last_item_seconds' => (float) ($itemdetails['seconds'] ?? 0.0),
+                        'last_item_records' => (int) ($itemdetails['records'] ?? 0),
+                    ]);
+            };
             $byquiz = parallel_course_fetcher::fetch(
                 $course, array_map(fn($item) => $item['quiz'], $stale),
-                max(1, (int) (get_config('local_quizanalytics', 'parallelworkers') ?: 4))
+                max(1, (int) (get_config('local_quizanalytics', 'parallelworkers') ?: 4)),
+                $progresscallback
             );
         } catch (\Throwable $e) {
             foreach ($stale as $item) {
                 \local_quizanalytics_prepared_store::mark_failed($courseid, (int) $item['quiz']->id, $e->getMessage());
             }
+            self::set_progress($courseid, $fingerprint, 'Average Grade', false, false,
+                'failed', 'failed', 0, count($stale), get_string('progressfailed', 'local_quizanalytics'));
             mtrace('local_quizanalytics: reusable preparation failed for course ' . $courseid . ': ' . $e->getMessage());
             return;
         }
@@ -407,6 +436,9 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
                 mtrace('local_quizanalytics: quiz preparation failed for quiz ' . $quiz->id . ': ' . $e->getMessage());
             }
         }
+        self::set_progress($courseid, $fingerprint, 'Average Grade', false, false,
+            'complete', 'complete', count($stale), count($stale),
+            get_string('progresscomplete', 'local_quizanalytics'));
     }
 
     /**

@@ -206,14 +206,22 @@ class quiz_metrics {
         }
 
         $byquiz = table_helpers::group_by($attemptframe, 'quiz_name');
-        // group_by() preserves each quiz's first-appearance order from
-        // $attemptframe, which callers build by iterating quizzes in
-        // data_fetcher::get_course_stack_quizzes()'s own chronological
-        // order — deliberately kept as-is rather than the Python original's
-        // pandas groupby("quiz_name") (sort=True default, i.e. alphabetical)
-        // so a course-wide chart's quiz axis reads as a timeline instead of
-        // "Quiz 10" sorting before "Quiz 2".
-        $quiznames = array_keys($byquiz);
+        // The metadata is assembled by index.php while iterating the selected
+        // quizzes returned by get_course_stack_quizzes(). Use that explicit
+        // order instead of relying on the first attempt encountered in the
+        // prepared frame. Append any unlisted names defensively for callers
+        // that do not provide metadata (for example, focused unit tests).
+        $quiznames = [];
+        foreach (array_keys($quizmetadata) as $quizname) {
+            if (isset($byquiz[$quizname])) {
+                $quiznames[] = $quizname;
+            }
+        }
+        foreach (array_keys($byquiz) as $quizname) {
+            if (!in_array($quizname, $quiznames, true)) {
+                $quiznames[] = $quizname;
+            }
+        }
 
         $statsbyquiz = array_fill_keys($quiznames, []);
 

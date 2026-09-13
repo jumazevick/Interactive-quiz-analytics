@@ -218,37 +218,29 @@ if ($needsPreparation || $refreshrequested) {
     );
 }
 
-if (empty($preparedframes)) {
-    echo $OUTPUT->notification(
-        $refreshrequested ? get_string('analyticsrefreshqueued', 'local_quizanalytics')
-            : get_string('analyticspreparing', 'local_quizanalytics'),
-        'notifymessage'
+if (!empty($preparedframes)) {
+    $result = $client->analyze_course(
+        $course->fullname, [], $colorblind,
+        \local_quizanalytics\quiz\analytics\course_analysis::DEFAULT_GRADE_TYPE,
+        $anonymize, $quizmetadata, null, $preparedframes
     );
-    echo $OUTPUT->footer();
-    exit;
+    $showingstale = $needsPreparation || $refreshrequested;
+    echo $OUTPUT->heading(get_string('coursewideheading', 'local_quizanalytics'), 3, 'main mb-3');
+    echo html_writer::div(
+        get_string('analyticslastupdated', 'local_quizanalytics', userdate($latestsuccess)),
+        'alert alert-info'
+    );
+    echo html_writer::link(
+        (new moodle_url('/local/quizanalytics/index.php', [
+            'id' => $courseid, 'quizids' => implode(',', $selectedids), 'refresh' => 1,
+        ]))->out(false),
+        get_string('refreshanalytics', 'local_quizanalytics'), ['class' => 'btn btn-secondary mb-3']
+    );
+    if ($refreshrequested) {
+        echo $OUTPUT->notification(get_string('analyticsrefreshqueued', 'local_quizanalytics'), 'notifymessage');
+    }
+    goto render_prepared_result;
 }
-
-$result = $client->analyze_course(
-    $course->fullname, [], $colorblind,
-    \local_quizanalytics\quiz\analytics\course_analysis::DEFAULT_GRADE_TYPE,
-    $anonymize, $quizmetadata, null, $preparedframes
-);
-$showingstale = $needsPreparation || $refreshrequested;
-echo $OUTPUT->heading(get_string('coursewideheading', 'local_quizanalytics'), 3, 'main mb-3');
-echo html_writer::div(
-    get_string('analyticslastupdated', 'local_quizanalytics', userdate($latestsuccess)),
-    'alert alert-info'
-);
-echo html_writer::link(
-    (new moodle_url('/local/quizanalytics/index.php', [
-        'id' => $courseid, 'quizids' => implode(',', $selectedids), 'refresh' => 1,
-    ]))->out(false),
-    get_string('refreshanalytics', 'local_quizanalytics'), ['class' => 'btn btn-secondary mb-3']
-);
-if ($refreshrequested) {
-    echo $OUTPUT->notification(get_string('analyticsrefreshqueued', 'local_quizanalytics'), 'notifymessage');
-}
-goto render_prepared_result;
 
 echo $OUTPUT->heading(get_string('coursewideheading', 'local_quizanalytics'), 3, 'main mb-3');
 
@@ -292,10 +284,14 @@ $qwkey = local_quizanalytics_quiz_cache_helper::build_key(
     $colorblind,
     $anonymize
 );
+$progressfingerprint = empty($preparedframes)
+    ? local_quizanalytics_quiz_cache_helper::stats_for_quizzes($allstackquizzes)->fingerprint
+    : $coursestats->fingerprint;
+$progressquizids = empty($preparedframes) ? [] : array_keys($stackquizzes);
 $progressurl = (new moodle_url('/local/quizanalytics/progress.php', [
-    'id' => $courseid, 'fingerprint' => $coursestats->fingerprint,
+    'id' => $courseid, 'fingerprint' => $progressfingerprint,
     'gradetype' => $gradetype, 'colorblind' => (int) $colorblind,
-    'anonymize' => (int) $anonymize, 'quizids' => implode(',', array_keys($stackquizzes)),
+    'anonymize' => (int) $anonymize, 'quizids' => implode(',', $progressquizids),
 ]))->out(false);
 $renderprogress = function () use ($progressurl): void {
     global $PAGE;
@@ -314,6 +310,18 @@ $renderprogress = function () use ($progressurl): void {
     );
     $PAGE->requires->js_call_amd('local_quizanalytics/progress', 'init', [$progressurl]);
 };
+
+if (empty($preparedframes)) {
+    $renderprogress();
+    echo $OUTPUT->notification(
+        $refreshrequested ? get_string('analyticsrefreshqueued', 'local_quizanalytics')
+            : get_string('analyticspreparing', 'local_quizanalytics'),
+        'notifymessage'
+    );
+    echo $OUTPUT->footer();
+    exit;
+}
+
 $result = $qwcache->get($qwkey);
 $showingstale = false;
 if ($result === false) {
@@ -455,25 +463,6 @@ if ($showingstale) {
         'notifymessage'
     );
 }
-
-// Explain where the per-question Facility Index comes from and link teachers
-// to the per-quiz Question Analytics view, where the same Moodle-native values
-// are shown for the selected quiz.
-$perquizurl = new moodle_url('/local/quizanalytics/questionanalytics.php', ['id' => $courseid]);
-foreach ($result['sections'] as &$section) {
-    if (($section['id'] ?? '') === 'quiz-stats') {
-        $section['caption_html'] = 'For each quiz, Moodle calculates a separate Facility Index for every question: '
-            . 'the mean mark earned divided by that question\'s maximum mark, expressed as a percentage, '
-            . 'using finished, non-preview attempts. These values are read from Moodle\'s own Quiz Statistics '
-            . 'calculation, so this course-wide table does not replace them with one averaged quiz score. '
-            . html_writer::link($perquizurl, 'Open the per-quiz Question Analytics view to inspect them', [
-                'target' => '_blank',
-                'rel' => 'noopener',
-            ]);
-        break;
-    }
-}
-unset($section);
 
 echo sections_output_helper::render_containers('qw');
 echo sections_output_helper::render_vendor_and_payload('qw', $result);
