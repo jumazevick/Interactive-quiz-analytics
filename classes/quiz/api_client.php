@@ -93,7 +93,8 @@ class local_quizanalytics_quiz_api_client {
         ?string $gradetype = null,
         bool $anonymize = false,
         array $quizmetadata = [],
-        ?callable $progresscallback = null
+        ?callable $progresscallback = null,
+        ?array $preparedframes = null
     ): ?array {
         try {
             return \local_quizanalytics\quiz\analytics\course_analysis::build_analysis(
@@ -105,7 +106,8 @@ class local_quizanalytics_quiz_api_client {
                 $gradetype ?? \local_quizanalytics\quiz\analytics\course_analysis::DEFAULT_GRADE_TYPE,
                 $anonymize,
                 $quizmetadata,
-                $progresscallback
+                $progresscallback,
+                $preparedframes
             );
         } catch (\Throwable $e) {
             debugging(

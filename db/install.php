@@ -35,6 +35,7 @@ defined('MOODLE_INTERNAL') || die();
  * for the same logic applied to a site upgrading from before this existed.
  */
 function xmldb_local_quizanalytics_install() {
+    local_quizanalytics_create_prepared_table();
     require_once(__DIR__ . '/../classes/task/resource_detector.php');
 
     $workermemorymb = (int) (get_config('local_quizanalytics', 'parallelworkermemory') ?: 2048);
@@ -42,4 +43,25 @@ function xmldb_local_quizanalytics_install() {
 
     set_config('parallelworkers', $recommendation['workers'], 'local_quizanalytics');
     set_config('resourcedetectionrun', time(), 'local_quizanalytics');
+}
+
+function local_quizanalytics_create_prepared_table(): void {
+    global $DB;
+    $dbman = $DB->get_manager();
+    $table = new xmldb_table('local_quizanalytics_prepared');
+    $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+    $table->add_field('courseid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $table->add_field('quizid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $table->add_field('fingerprint', XMLDB_TYPE_CHAR, '32', null, XMLDB_NOTNULL, null, '');
+    $table->add_field('status', XMLDB_TYPE_CHAR, '20', null, XMLDB_NOTNULL, null, 'stale');
+    $table->add_field('payload', XMLDB_TYPE_TEXT, null, null, XMLDB_NOTNULL, null, null);
+    $table->add_field('lastsuccess', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, 0);
+    $table->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, 0);
+    $table->add_field('lasterror', XMLDB_TYPE_TEXT, null, null, false, null, null);
+    $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+    $table->add_key('coursequiz', XMLDB_KEY_UNIQUE, ['courseid', 'quizid']);
+    $table->add_index('course', XMLDB_INDEX_NOTUNIQUE, ['courseid']);
+    if (!$dbman->table_exists($table)) {
+        $dbman->create_table($table);
+    }
 }

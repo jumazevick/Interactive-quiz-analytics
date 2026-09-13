@@ -58,33 +58,47 @@ class course_analysis {
         string $gradetype = self::DEFAULT_GRADE_TYPE,
         bool $anonymize = false,
         array $quizmetadata = [],
-        ?callable $progresscallback = null
+        ?callable $progresscallback = null,
+        ?array $preparedframes = null
     ): array {
         $reporttiming = function(string $metric, float $started) use ($progresscallback): void {
             if ($progresscallback !== null) {
                 $progresscallback($metric, microtime(true) - $started);
             }
         };
-        $started = microtime(true);
-        $combined = [];
-        foreach ($quizzes as $quizname => $records) {
-            if (empty($records)) {
-                continue;
+        if ($preparedframes !== null) {
+            $attemptframe = [];
+            foreach ($preparedframes as $frame) {
+                if (!empty($frame)) {
+                    $attemptframe = array_merge($attemptframe, $frame);
+                }
             }
-            $rows = parser::build_response_rows($records, $quizname, $anonymize);
-            if (!empty($rows)) {
-                $combined = array_merge($combined, $rows);
+        } else {
+            $started = microtime(true);
+            $combined = [];
+            foreach ($quizzes as $quizname => $records) {
+                if (empty($records)) {
+                    continue;
+                }
+                $rows = parser::build_response_rows($records, $quizname, $anonymize);
+                if (!empty($rows)) {
+                    $combined = array_merge($combined, $rows);
+                }
             }
+
+            if (empty($combined)) {
+                throw new \InvalidArgumentException('No gradable attempts parsed for any quiz.');
+            }
+            $reporttiming('Parse response records', $started);
+
+            $started = microtime(true);
+            $attemptframe = quiz_metrics::build_quiz_attempt_frame($combined);
+            $reporttiming('Build attempt frame', $started);
         }
 
-        if (empty($combined)) {
-            throw new \InvalidArgumentException('No gradable attempts parsed for any quiz.');
+        if (empty($attemptframe)) {
+            throw new \InvalidArgumentException('No prepared gradable attempts available for any quiz.');
         }
-        $reporttiming('Parse response records', $started);
-
-        $started = microtime(true);
-        $attemptframe = quiz_metrics::build_quiz_attempt_frame($combined);
-        $reporttiming('Build attempt frame', $started);
 
         $selectedstats = !empty($selectedstats) ? $selectedstats : self::DEFAULT_QUIZ_STATS;
         $selectedmetrics = !empty($selectedmetrics) ? $selectedmetrics : self::DEFAULT_QUIZ_METRICS;

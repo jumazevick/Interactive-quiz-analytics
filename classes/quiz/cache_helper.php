@@ -88,6 +88,32 @@ class local_quizanalytics_quiz_cache_helper {
         return self::stats_for_quiz_ids(array_map(fn($q) => $q->id, $quizzes));
     }
 
+    /** Return cheap attempt fingerprints for several quizzes in one query. */
+    public static function stats_for_quizzes_by_id(array $quizzes): array {
+        global $DB;
+        $ids = array_values(array_unique(array_map(fn($q) => (int) $q->id, $quizzes)));
+        if (empty($ids)) {
+            return [];
+        }
+        [$insql, $params] = $DB->get_in_or_equal($ids, SQL_PARAMS_NAMED, 'quizstats');
+        $rows = $DB->get_records_sql(
+            "SELECT quiz, COUNT(*) AS cnt, MAX(timefinish) AS maxfinish, SUM(sumgrades) AS sumgrades
+               FROM {quiz_attempts}
+              WHERE quiz $insql AND state = 'finished'
+           GROUP BY quiz",
+            $params
+        );
+        $result = [];
+        foreach ($ids as $id) {
+            $row = $rows[$id] ?? (object) ['cnt' => 0, 'maxfinish' => 0, 'sumgrades' => 0];
+            $result[$id] = (object) [
+                'count' => (int) $row->cnt,
+                'fingerprint' => md5(($row->cnt ?? 0) . '_' . ($row->maxfinish ?? '0') . '_' . ($row->sumgrades ?? '0')),
+            ];
+        }
+        return $result;
+    }
+
     /**
      * Builds a cache key safe for a `simplekeys => true` MUC cache area
      * (alphanumeric-only) from an arbitrary list of key parts.

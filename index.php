@@ -40,6 +40,7 @@ require_once(__DIR__ . '/../../config.php');
 require_once($CFG->dirroot . '/local/quizanalytics/classes/quiz/data_fetcher.php');
 require_once($CFG->dirroot . '/local/quizanalytics/classes/quiz/api_client.php');
 require_once($CFG->dirroot . '/local/quizanalytics/classes/quiz/cache_helper.php');
+require_once($CFG->dirroot . '/local/quizanalytics/classes/quiz/prepared_store.php');
 require_once($CFG->dirroot . '/local/quizanalytics/classes/section_selector.php');
 
 use local_quizanalytics\quiz\output\sections_output_helper;
@@ -132,6 +133,9 @@ $selectionform .= ' ' . html_writer::tag('button', get_string('selectall', 'loca
 $selectionform .= ' ' . html_writer::tag('button', get_string('clearall', 'local_quizanalytics'), [
     'type' => 'button', 'id' => 'local-quizanalytics-clear-all', 'class' => 'btn btn-link btn-sm',
 ]);
+$selectionform .= ' ' . html_writer::tag('button', get_string('viewanalytics', 'local_quizanalytics'), [
+    'type' => 'submit', 'class' => 'btn btn-primary btn-sm',
+]);
 $selectionform .= html_writer::start_tag('details', ['class' => 'mt-2', 'open' => 'open']);
 $selectionform .= html_writer::tag('summary', get_string('selectquizzes', 'local_quizanalytics'));
 $lastsection = null;
@@ -161,7 +165,7 @@ if ($lastsection !== null) {
 $selectionform .= html_writer::end_tag('details');
 $selectionform .= html_writer::div('', '', ['id' => 'local-quizanalytics-selection-count', 'class' => 'small text-muted mt-2']);
 $selectionform .= html_writer::end_tag('form');
-$selectionform .= html_writer::script("(function(){const f=document.getElementById('local-quizanalytics-quiz-selection');if(!f)return;const h=document.getElementById('local-quizanalytics-quizids');const c=()=>Array.from(f.querySelectorAll('.local-quizanalytics-quiz-choice:checked')).map(x=>x.value);let timer;const submit=()=>{h.value=c().join(',');clearTimeout(timer);timer=setTimeout(()=>f.submit(),350);};const count=()=>{document.getElementById('local-quizanalytics-selection-count').textContent='" . get_string('showingquizzes', 'local_quizanalytics') . "'.replace('{\$a}',c().length).replace('{total}'," . count($allstackquizzes) . ");};f.querySelectorAll('.local-quizanalytics-quiz-choice').forEach(x=>x.addEventListener('change',()=>{count();submit();}));document.getElementById('local-quizanalytics-select-all').addEventListener('click',()=>{f.querySelectorAll('.local-quizanalytics-quiz-choice').forEach(x=>x.checked=true);count();submit();});document.getElementById('local-quizanalytics-clear-all').addEventListener('click',()=>{f.querySelectorAll('.local-quizanalytics-quiz-choice').forEach(x=>x.checked=false);count();submit();});count();})();");
+$selectionform .= html_writer::script("(function(){const f=document.getElementById('local-quizanalytics-quiz-selection');if(!f)return;const h=document.getElementById('local-quizanalytics-quizids');const c=()=>Array.from(f.querySelectorAll('.local-quizanalytics-quiz-choice:checked')).map(x=>x.value);const count=()=>{h.value=c().join(',');document.getElementById('local-quizanalytics-selection-count').textContent='" . get_string('showingquizzes', 'local_quizanalytics') . "'.replace('{\$a}',c().length).replace('{total}'," . count($allstackquizzes) . ");};f.querySelectorAll('.local-quizanalytics-quiz-choice').forEach(x=>x.addEventListener('change',count));document.getElementById('local-quizanalytics-select-all').addEventListener('click',()=>{f.querySelectorAll('.local-quizanalytics-quiz-choice').forEach(x=>x.checked=true);count();});document.getElementById('local-quizanalytics-clear-all').addEventListener('click',()=>{f.querySelectorAll('.local-quizanalytics-quiz-choice').forEach(x=>x.checked=false);count();});count();})();");
 echo $selectionform;
 
 if (empty($stackquizzes)) {
@@ -171,6 +175,80 @@ if (empty($stackquizzes)) {
 }
 
 $client = new local_quizanalytics_quiz_api_client();
+core_php_time_limit::raise((int) get_config('local_quizanalytics', 'computetimelimit'));
+
+// Prepared course analytics are independent of the lecturer's selection.
+// Selection changes only recombine these compact per-quiz frames.
+$statsbyquiz = local_quizanalytics_quiz_cache_helper::stats_for_quizzes_by_id($allstackquizzes);
+$preparedrows = local_quizanalytics_prepared_store::get_course($courseid);
+$preparedframes = [];
+$quizmetadata = [];
+$needsPreparation = false;
+$latestsuccess = 0;
+foreach ($stackquizzes as $quiz) {
+    $stats = $statsbyquiz[(int) $quiz->id];
+    $preparedrow = $preparedrows[(int) $quiz->id] ?? null;
+    $payload = local_quizanalytics_prepared_store::decode($preparedrow);
+    if (!local_quizanalytics_prepared_store::is_fresh($preparedrow, $stats->fingerprint)) {
+        $needsPreparation = true;
+    }
+    if ($payload !== null && array_key_exists('attemptframe', $payload)) {
+        $frame = $payload['attemptframe'];
+        if ($anonymize) {
+            $frame = \local_quizanalytics\quiz\analytics\anonymize::anonymize_response_rows($frame);
+        }
+        $preparedframes[] = $frame;
+        $quizmetadata[$quiz->name] = [
+            'quiz_url' => (new moodle_url('/local/quizanalytics/questionanalytics.php', [
+                'id' => $courseid, 'quizid' => (int) $quiz->id,
+            ]))->out(false),
+            'facility_index' => $payload['facility_index'] ?? null,
+        ];
+        if (!empty($preparedrow->lastsuccess)) {
+            $latestsuccess = max($latestsuccess, (int) $preparedrow->lastsuccess);
+        }
+    }
+}
+
+$refreshrequested = optional_param('refresh', 0, PARAM_BOOL);
+if ($needsPreparation || $refreshrequested) {
+    \local_quizanalytics\task\warm_single_view_adhoc_task::dispatch_for_course(
+        $courseid, \local_quizanalytics\quiz\analytics\course_analysis::DEFAULT_GRADE_TYPE,
+        $colorblind, $anonymize
+    );
+}
+
+if (empty($preparedframes)) {
+    echo $OUTPUT->notification(
+        $refreshrequested ? get_string('analyticsrefreshqueued', 'local_quizanalytics')
+            : get_string('analyticspreparing', 'local_quizanalytics'),
+        'notifymessage'
+    );
+    echo $OUTPUT->footer();
+    exit;
+}
+
+$result = $client->analyze_course(
+    $course->fullname, [], $colorblind,
+    \local_quizanalytics\quiz\analytics\course_analysis::DEFAULT_GRADE_TYPE,
+    $anonymize, $quizmetadata, null, $preparedframes
+);
+$showingstale = $needsPreparation || $refreshrequested;
+echo $OUTPUT->heading(get_string('coursewideheading', 'local_quizanalytics'), 3, 'main mb-3');
+echo html_writer::div(
+    get_string('analyticslastupdated', 'local_quizanalytics', userdate($latestsuccess)),
+    'alert alert-info'
+);
+echo html_writer::link(
+    (new moodle_url('/local/quizanalytics/index.php', [
+        'id' => $courseid, 'quizids' => implode(',', $selectedids), 'refresh' => 1,
+    ]))->out(false),
+    get_string('refreshanalytics', 'local_quizanalytics'), ['class' => 'btn btn-secondary mb-3']
+);
+if ($refreshrequested) {
+    echo $OUTPUT->notification(get_string('analyticsrefreshqueued', 'local_quizanalytics'), 'notifymessage');
+}
+goto render_prepared_result;
 
 echo $OUTPUT->heading(get_string('coursewideheading', 'local_quizanalytics'), 3, 'main mb-3');
 
@@ -364,6 +442,7 @@ if ($result === false) {
     ignore_user_abort($previousabort);
 }
 
+render_prepared_result:
 if ($result === null) {
     echo $OUTPUT->notification(get_string('servererror', 'local_quizanalytics'), 'notifyproblem');
     echo $OUTPUT->footer();

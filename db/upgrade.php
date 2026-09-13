@@ -27,6 +27,14 @@ defined('MOODLE_INTERNAL') || die();
  * @return bool
  */
 function xmldb_local_quizanalytics_upgrade($oldversion) {
+    if ($oldversion < 2026091400) {
+        require_once(__DIR__ . '/install.php');
+        local_quizanalytics_create_prepared_table();
+        upgrade_plugin_savepoint(true, 2026091400, 'local', 'quizanalytics');
+    }
+    if ($oldversion < 2026091401) {
+        upgrade_plugin_savepoint(true, 2026091401, 'local', 'quizanalytics');
+    }
     if ($oldversion < 2026082002) {
         // Resource-based auto-detection (classes/task/resource_detector.php)
         // is new as of this version — a fresh install picks it up via

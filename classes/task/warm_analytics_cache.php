@@ -79,6 +79,7 @@ require_once($CFG->dirroot . '/local/quizanalytics/classes/quiz/data_fetcher.php
 require_once($CFG->dirroot . '/local/quizanalytics/classes/quiz/api_client.php');
 require_once($CFG->dirroot . '/local/quizanalytics/classes/quiz/cache_helper.php');
 require_once($CFG->dirroot . '/local/quizanalytics/classes/task/parallel_course_fetcher.php');
+require_once($CFG->dirroot . '/local/quizanalytics/classes/task/warm_single_view_adhoc_task.php');
 
 /**
  * Scheduled task that keeps the Quiz Analytics/Question Analytics result caches warm.
@@ -100,6 +101,19 @@ class warm_analytics_cache extends \core\task\scheduled_task {
      */
     public function execute(): void {
         global $DB;
+
+        // Preparation is now selection-independent. Queue one deduplicated
+        // course preparation task and let it decide which quiz snapshots are
+        // stale; do not perform the raw question-engine work in this sweep.
+        foreach (\local_quizanalytics_quiz_data_fetcher::get_courses_with_stack_quizzes() as $courseid) {
+            \local_quizanalytics\task\warm_single_view_adhoc_task::dispatch_for_course(
+                (int) $courseid,
+                course_analysis::DEFAULT_GRADE_TYPE,
+                false,
+                false
+            );
+        }
+        return;
 
         // This is CLI/cron-only (never a web request a shared host needs to
         // budget memory for per-request), and a real course's course-wide
