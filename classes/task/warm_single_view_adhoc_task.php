@@ -145,13 +145,67 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
      * @param bool $colorblind
      * @param bool $anonymize
      */
-    public static function dispatch_for_course(int $courseid, string $gradetype, bool $colorblind, bool $anonymize): void {
-        self::dispatch([
+    public static function dispatch_for_course(
+        int $courseid, string $gradetype, bool $colorblind, bool $anonymize, ?string $fingerprint = null
+    ): void {
+        $customdata = [
             'type' => 'course',
             'id' => $courseid,
             'gradetype' => $gradetype,
             'colorblind' => $colorblind,
             'anonymize' => $anonymize,
+        ];
+        if ($fingerprint !== null) {
+            $customdata['fingerprint'] = $fingerprint;
+            self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,
+                'queued', 'queued', 0, 0, get_string('progressqueued', 'local_quizanalytics'));
+        }
+        self::dispatch($customdata);
+    }
+
+    /** Return the shared progress-cache key for a course computation. */
+    public static function progress_key(
+        int $courseid, string $fingerprint, string $gradetype, bool $colorblind, bool $anonymize
+    ): string {
+        return \local_quizanalytics_quiz_cache_helper::build_key(
+            'course-progress-v1', $courseid, $fingerprint, $gradetype, $colorblind, $anonymize
+        );
+    }
+
+    /** Return the latest progress snapshot, or false when none exists. */
+    public static function get_progress(
+        int $courseid, string $fingerprint, string $gradetype, bool $colorblind, bool $anonymize
+    ) {
+        $cache = \cache::make('local_quizanalytics', 'analyticsprogress');
+        return $cache->get(self::progress_key($courseid, $fingerprint, $gradetype, $colorblind, $anonymize));
+    }
+
+    /** Write one small progress snapshot; this never performs analytics work. */
+    private static function set_progress(
+        int $courseid, string $fingerprint, string $gradetype, bool $colorblind, bool $anonymize,
+        string $status, string $stage, int $completed, int $total, string $message
+    ): void {
+        $cache = \cache::make('local_quizanalytics', 'analyticsprogress');
+        $key = self::progress_key($courseid, $fingerprint, $gradetype, $colorblind, $anonymize);
+        $previous = $cache->get($key);
+        $started = is_array($previous) && !empty($previous['started']) ? $previous['started'] : time();
+        $percent = $stage === 'complete' ? 100 : ($stage === 'queued' ? 0 : 5);
+        if ($stage === 'processing' && $total > 0) {
+            $percent = 10 + (int) round(65 * ($completed / $total));
+        } else if ($stage === 'analyzing') {
+            $percent = 80;
+        } else if ($stage === 'saving') {
+            $percent = 95;
+        }
+        $cache->set($key, [
+            'status' => $status,
+            'stage' => $stage,
+            'completed' => $completed,
+            'total' => $total,
+            'percent' => min(100, max(0, $percent)),
+            'message' => $message,
+            'started' => $started,
+            'updated' => time(),
         ]);
     }
 
@@ -246,7 +300,8 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
                     (string) $data->gradetype,
                     (bool) $data->colorblind,
                     (bool) $data->anonymize,
-                    $client
+                    $client,
+                    isset($data->fingerprint) ? (string) $data->fingerprint : null
                 );
         }
     }
@@ -329,7 +384,9 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
      * @param bool $anonymize
      * @param \local_quizanalytics_quiz_api_client $client
      */
-    private function warm_course_view(int $courseid, string $gradetype, bool $colorblind, bool $anonymize, $client): void {
+    private function warm_course_view(
+        int $courseid, string $gradetype, bool $colorblind, bool $anonymize, $client, ?string $fingerprint = null
+    ): void {
         global $DB;
 
         $course = $DB->get_record('course', ['id' => $courseid]);
@@ -347,6 +404,7 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
         }
 
         $cache = \cache::make('local_quizanalytics', 'quizanalysiscoursewide');
+        $fingerprint = $coursestats->fingerprint;
         $key = \local_quizanalytics_quiz_cache_helper::build_key(
             'course-ui-v4', $courseid, $coursestats->fingerprint, $gradetype, $colorblind, $anonymize
         );
@@ -358,8 +416,15 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
                 'course-ui-latest-v1', $courseid, $gradetype, $colorblind, $anonymize
             );
             $cache->set($latestkey, $existing);
+            self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,
+                'complete', 'complete', count($stackquizzes), count($stackquizzes),
+                get_string('progresscomplete', 'local_quizanalytics'));
             return;
         }
+
+        self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,
+            'running', 'preparing', 0, count($stackquizzes),
+            get_string('progresspreparing', 'local_quizanalytics'));
 
         // Same forked-worker-pool fetch warm_analytics_cache's own
         // warm_course() uses, not the plain serial
@@ -370,20 +435,44 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
         // than the equivalent scheduled-task run of the same course.
         $workers = max(1, (int) (get_config('local_quizanalytics', 'parallelworkers') ?: 4));
         try {
-            $byquiz = parallel_course_fetcher::fetch($course, $stackquizzes, $workers);
+            $progresscallback = function(int $completed, int $total) use (
+                $courseid, $fingerprint, $gradetype, $colorblind, $anonymize
+            ): void {
+                self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,
+                    'running', 'processing', $completed, $total,
+                    get_string('progressprocessing', 'local_quizanalytics', (object) [
+                        'completed' => $completed, 'total' => $total,
+                    ]));
+            };
+            $byquiz = parallel_course_fetcher::fetch($course, $stackquizzes, $workers, $progresscallback);
         } catch (\Throwable $e) {
+            self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,
+                'failed', 'failed', 0, count($stackquizzes), get_string('progressfailed', 'local_quizanalytics'));
             mtrace('local_quizanalytics: warm_single_view_adhoc_task could not fetch course '
                 . $courseid . ': ' . $e->getMessage());
             return; // Leave the cache cold — a future dispatch or cron run can retry.
         }
         $byquiz = array_filter($byquiz, fn($records) => !empty($records));
+        self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,
+            'running', 'analyzing', count($stackquizzes), count($stackquizzes),
+            get_string('progressanalyzing', 'local_quizanalytics'));
         $result = $client->analyze_course($course->fullname, $byquiz, $colorblind, $gradetype, $anonymize);
         if ($result !== null) {
+            self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,
+                'running', 'saving', count($stackquizzes), count($stackquizzes),
+                get_string('progresssaving', 'local_quizanalytics'));
             $cache->set($key, $result);
             $latestkey = \local_quizanalytics_quiz_cache_helper::build_key(
                 'course-ui-latest-v1', $courseid, $gradetype, $colorblind, $anonymize
             );
             $cache->set($latestkey, $result);
+            self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,
+                'complete', 'complete', count($stackquizzes), count($stackquizzes),
+                get_string('progresscomplete', 'local_quizanalytics'));
+        } else {
+            self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,
+                'failed', 'failed', count($stackquizzes), count($stackquizzes),
+                get_string('progressfailed', 'local_quizanalytics'));
         }
     }
 }

@@ -677,10 +677,16 @@ class local_quizanalytics_quiz_data_fetcher {
      *
      * @param stdClass $course
      * @param stdClass[] $stackquizzes as returned by get_course_stack_quizzes()
+     * @param callable|null $progresscallback optional callback receiving
+     *        ($completed, $total) after each quiz
      * @return array [quiz_name => records[]]
      */
-    public static function get_course_response_records(stdClass $course, array $stackquizzes): array {
+    public static function get_course_response_records(
+        stdClass $course, array $stackquizzes, ?callable $progresscallback = null
+    ): array {
         $bycourse = [];
+        $completed = 0;
+        $total = count($stackquizzes);
         foreach ($stackquizzes as $quiz) {
             $bycourse[$quiz->name] = self::get_response_records_for_quiz($quiz, $course);
 
@@ -701,6 +707,10 @@ class local_quizanalytics_quiz_data_fetcher {
             // for the same previously-461s quiz with this in place, and memory usage
             // stayed bounded rather than growing for the rest of the request.
             gc_collect_cycles();
+            $completed++;
+            if ($progresscallback !== null) {
+                $progresscallback($completed, $total);
+            }
         }
         return $bycourse;
     }

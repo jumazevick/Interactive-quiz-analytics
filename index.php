@@ -143,6 +143,28 @@ $qwkey = local_quizanalytics_quiz_cache_helper::build_key(
     $colorblind,
     $anonymize
 );
+$progressurl = (new moodle_url('/local/quizanalytics/progress.php', [
+    'id' => $courseid, 'fingerprint' => $coursestats->fingerprint,
+    'gradetype' => $gradetype, 'colorblind' => (int) $colorblind,
+    'anonymize' => (int) $anonymize,
+]))->out(false);
+$renderprogress = function () use ($progressurl): void {
+    global $PAGE;
+    echo html_writer::div(
+        html_writer::div(
+            html_writer::div('', 'progress-bar', [
+                'id' => 'local-quizanalytics-progress-bar', 'role' => 'progressbar',
+                'style' => 'width: 0%', 'aria-valuenow' => 0,
+                'aria-valuemin' => 0, 'aria-valuemax' => 100,
+            ]), 'progress mb-2'
+        ) . html_writer::div('', '', [
+            'id' => 'local-quizanalytics-progress-message', 'aria-live' => 'polite',
+        ]),
+        'local-quizanalytics-progress mb-3',
+        ['id' => 'local-quizanalytics-progress', 'data-progress-url' => $progressurl]
+    );
+    $PAGE->requires->js_call_amd('local_quizanalytics/progress', 'init', [$progressurl]);
+};
 $result = $qwcache->get($qwkey);
 $showingstale = false;
 if ($result === false) {
@@ -155,10 +177,11 @@ if ($result === false) {
     $latestresult = $qwcache->get($latestkey);
     if ($latestresult !== false) {
         \local_quizanalytics\task\warm_single_view_adhoc_task::dispatch_for_course(
-            $courseid, $gradetype, $colorblind, $anonymize
+            $courseid, $gradetype, $colorblind, $anonymize, $coursestats->fingerprint
         );
         $result = $latestresult;
         $showingstale = true;
+        $renderprogress();
     }
 }
 
@@ -168,12 +191,14 @@ if ($result === false) {
     // repeats expensive STACK work before the request decides to defer.
     if ($coursestats->count > 100) {
         \local_quizanalytics\task\warm_single_view_adhoc_task::dispatch_for_course(
-            $courseid, $gradetype, $colorblind, $anonymize
+            $courseid, $gradetype, $colorblind, $anonymize, $coursestats->fingerprint
         );
         $age = \local_quizanalytics\task\warm_single_view_adhoc_task::get_queued_age_seconds([
             'type' => 'course', 'id' => $courseid, 'gradetype' => $gradetype,
+            'fingerprint' => $coursestats->fingerprint,
             'colorblind' => $colorblind, 'anonymize' => $anonymize,
         ]);
+        $renderprogress();
         sections_output_helper::render_generating_in_background_notice($age);
         echo $OUTPUT->footer();
         exit;
@@ -204,10 +229,14 @@ if ($result === false) {
         // chance to help — see warm_single_view_adhoc_task's own docblock.
         // Hand it to a background task and let the visitor come back to a
         // warm cache instead of blocking this request on it.
-        \local_quizanalytics\task\warm_single_view_adhoc_task::dispatch_for_course($courseid, $gradetype, $colorblind, $anonymize);
+        \local_quizanalytics\task\warm_single_view_adhoc_task::dispatch_for_course(
+            $courseid, $gradetype, $colorblind, $anonymize, $coursestats->fingerprint
+        );
         $age = \local_quizanalytics\task\warm_single_view_adhoc_task::get_queued_age_seconds([
-            'type' => 'course', 'id' => $courseid, 'gradetype' => $gradetype, 'colorblind' => $colorblind, 'anonymize' => $anonymize,
+            'type' => 'course', 'id' => $courseid, 'gradetype' => $gradetype,
+            'fingerprint' => $coursestats->fingerprint, 'colorblind' => $colorblind, 'anonymize' => $anonymize,
         ]);
+        $renderprogress();
         sections_output_helper::render_generating_in_background_notice($age);
         echo $OUTPUT->footer();
         exit;

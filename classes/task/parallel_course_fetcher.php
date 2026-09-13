@@ -80,14 +80,18 @@ class parallel_course_fetcher {
      * @param \stdClass $course
      * @param \stdClass[] $stackquizzes quiz records to fetch, keyed by quiz id
      * @param int $workers maximum number of concurrent forked processes
+     * @param callable|null $progresscallback optional callback receiving
+     *        ($completed, $total) in the parent process
      * @return array [quiz_name => records[]]
      * @throws \Exception if any worker failed — the caller should treat
      *         that as "could not warm this course this run", not cache a
      *         partial/incomplete result.
      */
-    public static function fetch(\stdClass $course, array $stackquizzes, int $workers): array {
+    public static function fetch(\stdClass $course, array $stackquizzes, int $workers, ?callable $progresscallback = null): array {
         if ($workers <= 1 || count($stackquizzes) <= 1 || !function_exists('pcntl_fork')) {
-            return \local_quizanalytics_quiz_data_fetcher::get_course_response_records($course, $stackquizzes);
+            return \local_quizanalytics_quiz_data_fetcher::get_course_response_records(
+                $course, $stackquizzes, $progresscallback
+            );
         }
 
         $chunks = array_values(array_filter(
@@ -98,7 +102,9 @@ class parallel_course_fetcher {
             // Balancing collapsed everything into one bucket (e.g. only one
             // quiz has any attempts) — forking for a single chunk of work
             // only adds overhead, so run it inline instead.
-            return \local_quizanalytics_quiz_data_fetcher::get_course_response_records($course, $stackquizzes);
+            return \local_quizanalytics_quiz_data_fetcher::get_course_response_records(
+                $course, $stackquizzes, $progresscallback
+            );
         }
 
         $tmpdir = make_temp_directory('local_quizanalytics_parallel');
@@ -167,6 +173,9 @@ class parallel_course_fetcher {
                     $anyfailed = true;
                 } else {
                     $byquiz = ($byquiz ?? []) + $partial;
+                    if ($progresscallback !== null) {
+                        $progresscallback(count($byquiz), count($stackquizzes));
+                    }
                 }
                 continue;
             }
@@ -271,7 +280,10 @@ class parallel_course_fetcher {
                 $anyfailed = true;
                 continue;
             }
-            $byquiz += $partial; // Quiz names are unique per course — safe to merge.
+            $byquiz += $partial;
+            if ($progresscallback !== null) {
+                $progresscallback(count($byquiz), count($stackquizzes));
+            }
         }
 
         if ($anyfailed) {

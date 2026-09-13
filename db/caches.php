@@ -78,6 +78,15 @@ $definitions = [
         'ttl'         => 3600,
     ],
 
+    // Short-lived state for one background course-wide computation.
+    'analyticsprogress' => [
+        'mode'        => cache_store::MODE_APPLICATION,
+        'simplekeys'  => true,
+        'simpledata'  => false,
+        'staticacceleration' => true,
+        'ttl'         => 3600,
+    ],
+
     // The *raw* get_response_records_for_quiz() output for one quiz —
     // distinct from questionanalysis/solutionprocess above, which cache
     // the already-*computed* result. questionanalyticspdf.php needs the
