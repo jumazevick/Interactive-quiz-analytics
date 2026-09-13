@@ -157,8 +157,11 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
         ];
         if ($fingerprint !== null) {
             $customdata['fingerprint'] = $fingerprint;
-            self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,
-                'queued', 'queued', 0, 0, get_string('progressqueued', 'local_quizanalytics'));
+            $current = self::get_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize);
+            if ($current === false || ($current['status'] ?? '') !== 'running') {
+                self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,
+                    'queued', 'queued', 0, 0, get_string('progressqueued', 'local_quizanalytics'));
+            }
         }
         self::dispatch($customdata);
     }
@@ -183,12 +186,13 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
     /** Write one small progress snapshot; this never performs analytics work. */
     private static function set_progress(
         int $courseid, string $fingerprint, string $gradetype, bool $colorblind, bool $anonymize,
-        string $status, string $stage, int $completed, int $total, string $message
+        string $status, string $stage, int $completed, int $total, string $message, array $details = []
     ): void {
         $cache = \cache::make('local_quizanalytics', 'analyticsprogress');
         $key = self::progress_key($courseid, $fingerprint, $gradetype, $colorblind, $anonymize);
         $previous = $cache->get($key);
         $started = is_array($previous) && !empty($previous['started']) ? $previous['started'] : time();
+        $previousdetails = is_array($previous) && !empty($previous['details']) ? $previous['details'] : [];
         $percent = $stage === 'complete' ? 100 : ($stage === 'queued' ? 0 : 5);
         if ($stage === 'processing' && $total > 0) {
             $percent = 10 + (int) round(65 * ($completed / $total));
@@ -206,6 +210,8 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
             'message' => $message,
             'started' => $started,
             'updated' => time(),
+            'elapsed' => max(0, time() - $started),
+            'details' => array_merge($previousdetails, $details),
         ]);
     }
 
@@ -434,15 +440,29 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
         // background compute should be slower or more memory-concentrated
         // than the equivalent scheduled-task run of the same course.
         $workers = max(1, (int) (get_config('local_quizanalytics', 'parallelworkers') ?: 4));
+        $fetchstarted = microtime(true);
+        $slowestitem = ['name' => '', 'seconds' => 0.0];
         try {
-            $progresscallback = function(int $completed, int $total) use (
-                $courseid, $fingerprint, $gradetype, $colorblind, $anonymize
+            $progresscallback = function(int $completed, int $total, array $itemdetails = []) use (
+                $courseid, $fingerprint, $gradetype, $colorblind, $anonymize, &$slowestitem
             ): void {
+                $itemseconds = (float) ($itemdetails['seconds'] ?? 0.0);
+                if ($itemseconds > $slowestitem['seconds']) {
+                    $slowestitem = [
+                        'name' => (string) ($itemdetails['item'] ?? 'worker chunk'),
+                        'seconds' => $itemseconds,
+                    ];
+                }
                 self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,
                     'running', 'processing', $completed, $total,
                     get_string('progressprocessing', 'local_quizanalytics', (object) [
                         'completed' => $completed, 'total' => $total,
-                    ]));
+                    ]), [
+                        'last_item' => $itemdetails['item'] ?? 'worker chunk',
+                        'last_item_seconds' => $itemseconds,
+                        'last_item_records' => (int) ($itemdetails['records'] ?? 0),
+                        'slowest_item' => $slowestitem,
+                    ]);
             };
             $byquiz = parallel_course_fetcher::fetch($course, $stackquizzes, $workers, $progresscallback);
         } catch (\Throwable $e) {
@@ -453,10 +473,33 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
             return; // Leave the cache cold — a future dispatch or cron run can retry.
         }
         $byquiz = array_filter($byquiz, fn($records) => !empty($records));
+        $fetchtime = round(microtime(true) - $fetchstarted, 2);
         self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,
             'running', 'analyzing', count($stackquizzes), count($stackquizzes),
-            get_string('progressanalyzing', 'local_quizanalytics'));
-        $result = $client->analyze_course($course->fullname, $byquiz, $colorblind, $gradetype, $anonymize);
+            get_string('progressanalyzing', 'local_quizanalytics'), [
+                'timings' => ['response_fetch_seconds' => $fetchtime],
+                'slowest_item' => $slowestitem,
+            ]);
+        $analysisstarted = microtime(true);
+        $analysiscallback = function(string $metric, float $seconds) use (
+            $courseid, $fingerprint, $gradetype, $colorblind, $anonymize
+        ): void {
+            self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,
+                'running', 'analyzing', 0, 0,
+                get_string('progressanalyzing', 'local_quizanalytics'), [
+                    'current_metric' => $metric,
+                    'current_metric_seconds' => round($seconds, 2),
+                ]);
+        };
+        $result = $client->analyze_course(
+            $course->fullname, $byquiz, $colorblind, $gradetype, $anonymize, [], $analysiscallback
+        );
+        $analysistime = round(microtime(true) - $analysisstarted, 2);
+        self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,
+            'running', 'analyzing', count($stackquizzes), count($stackquizzes),
+            get_string('progressanalyzing', 'local_quizanalytics'), [
+                'timings' => ['response_fetch_seconds' => $fetchtime, 'analytics_seconds' => $analysistime],
+            ]);
         if ($result !== null) {
             self::set_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize,
                 'running', 'saving', count($stackquizzes), count($stackquizzes),

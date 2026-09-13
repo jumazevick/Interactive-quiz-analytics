@@ -57,8 +57,15 @@ class course_analysis {
         ?array $selectedmetrics = null,
         string $gradetype = self::DEFAULT_GRADE_TYPE,
         bool $anonymize = false,
-        array $quizmetadata = []
+        array $quizmetadata = [],
+        ?callable $progresscallback = null
     ): array {
+        $reporttiming = function(string $metric, float $started) use ($progresscallback): void {
+            if ($progresscallback !== null) {
+                $progresscallback($metric, microtime(true) - $started);
+            }
+        };
+        $started = microtime(true);
         $combined = [];
         foreach ($quizzes as $quizname => $records) {
             if (empty($records)) {
@@ -73,13 +80,18 @@ class course_analysis {
         if (empty($combined)) {
             throw new \InvalidArgumentException('No gradable attempts parsed for any quiz.');
         }
+        $reporttiming('Parse response records', $started);
 
+        $started = microtime(true);
         $attemptframe = quiz_metrics::build_quiz_attempt_frame($combined);
+        $reporttiming('Build attempt frame', $started);
 
         $selectedstats = !empty($selectedstats) ? $selectedstats : self::DEFAULT_QUIZ_STATS;
         $selectedmetrics = !empty($selectedmetrics) ? $selectedmetrics : self::DEFAULT_QUIZ_METRICS;
 
+        $started = microtime(true);
         $statsrows = quiz_metrics::compute_quiz_stats($attemptframe, $selectedstats, $quizmetadata);
+        $reporttiming('Compute quiz statistics', $started);
 
         $sections = [];
 
@@ -110,7 +122,9 @@ class course_analysis {
             'table' => table_helpers::to_table($statsrows),
         ];
 
+        $started = microtime(true);
         $boxfig = quiz_metrics::build_boxplot_figure($attemptframe, $colorblindmode);
+        $reporttiming('Build grade distribution', $started);
         $sections[] = [
             'id' => 'boxplot',
             'title' => 'Quiz Grade Distribution (Box Plot)',
@@ -118,7 +132,9 @@ class course_analysis {
             'charts' => [['id' => 'boxplot-fig', 'title' => null, 'plotly_json' => $boxfig]],
         ];
 
+        $started = microtime(true);
         $engagementfig = quiz_metrics::build_engagement_figure($attemptframe, $colorblindmode);
+        $reporttiming('Build engagement timeline', $started);
         if ($engagementfig !== null) {
             $sections[] = [
                 'id' => 'engagement',
@@ -128,6 +144,7 @@ class course_analysis {
             ];
         }
 
+        $started = microtime(true);
         $scattervariants = [];
         foreach (['Highest Grade', 'Average Grade', 'Minimum Grade'] as $scattertype) {
             $scatterresult = quiz_metrics::build_scatter_figure($attemptframe, $scattertype, $colorblindmode);
@@ -152,7 +169,9 @@ class course_analysis {
                 'charts' => [['id' => 'scatter-fig', 'title' => null, 'plotly_json' => $scatterresult['plotly_json']]],
             ];
         }
+        $reporttiming('Build attempts-versus-grades metrics', $started);
 
+        $started = microtime(true);
         $trenddata = quiz_metrics::build_metric_trend_data($attemptframe, $selectedmetrics);
         if (!empty($trenddata)) {
             $trendfig = quiz_metrics::build_line_graph_figure($trenddata, $colorblindmode);
@@ -164,6 +183,7 @@ class course_analysis {
                 'charts' => [['id' => 'trend-fig', 'title' => null, 'plotly_json' => $trendfig]],
             ];
         }
+        $reporttiming('Build metric trends', $started);
 
         return [
             'summary' => ['course_name' => $coursename],

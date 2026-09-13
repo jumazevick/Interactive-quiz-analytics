@@ -81,7 +81,7 @@ class parallel_course_fetcher {
      * @param \stdClass[] $stackquizzes quiz records to fetch, keyed by quiz id
      * @param int $workers maximum number of concurrent forked processes
      * @param callable|null $progresscallback optional callback receiving
-     *        ($completed, $total) in the parent process
+     *        ($completed, $total, $details) in the parent process
      * @return array [quiz_name => records[]]
      * @throws \Exception if any worker failed — the caller should treat
      *         that as "could not warm this course this run", not cache a
@@ -174,7 +174,9 @@ class parallel_course_fetcher {
                 } else {
                     $byquiz = ($byquiz ?? []) + $partial;
                     if ($progresscallback !== null) {
-                        $progresscallback(count($byquiz), count($stackquizzes));
+                        $progresscallback(count($byquiz), count($stackquizzes), [
+                            'item' => 'worker chunk', 'seconds' => null, 'records' => array_sum(array_map('count', $partial)),
+                        ]);
                     }
                 }
                 continue;
@@ -282,7 +284,9 @@ class parallel_course_fetcher {
             }
             $byquiz += $partial;
             if ($progresscallback !== null) {
-                $progresscallback(count($byquiz), count($stackquizzes));
+                $progresscallback(count($byquiz), count($stackquizzes), [
+                    'item' => 'worker chunk', 'seconds' => null, 'records' => array_sum(array_map('count', $partial)),
+                ]);
             }
         }
 

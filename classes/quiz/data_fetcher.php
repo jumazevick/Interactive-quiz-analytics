@@ -678,7 +678,7 @@ class local_quizanalytics_quiz_data_fetcher {
      * @param stdClass $course
      * @param stdClass[] $stackquizzes as returned by get_course_stack_quizzes()
      * @param callable|null $progresscallback optional callback receiving
-     *        ($completed, $total) after each quiz
+     *        ($completed, $total, $details) after each quiz
      * @return array [quiz_name => records[]]
      */
     public static function get_course_response_records(
@@ -688,6 +688,7 @@ class local_quizanalytics_quiz_data_fetcher {
         $completed = 0;
         $total = count($stackquizzes);
         foreach ($stackquizzes as $quiz) {
+            $quizstarted = microtime(true);
             $bycourse[$quiz->name] = self::get_response_records_for_quiz($quiz, $course);
 
             // get_response_records_for_quiz() batch-loads a question_usage_by_activity
@@ -709,7 +710,11 @@ class local_quizanalytics_quiz_data_fetcher {
             gc_collect_cycles();
             $completed++;
             if ($progresscallback !== null) {
-                $progresscallback($completed, $total);
+                $progresscallback($completed, $total, [
+                    'item' => $quiz->name,
+                    'seconds' => round(microtime(true) - $quizstarted, 2),
+                    'records' => count($bycourse[$quiz->name]),
+                ]);
             }
         }
         return $bycourse;
