@@ -39,6 +39,7 @@ require_once(__DIR__ . '/../../config.php');
 require_once($CFG->dirroot . '/local/quizanalytics/classes/quiz/data_fetcher.php');
 require_once($CFG->dirroot . '/local/quizanalytics/classes/quiz/api_client.php');
 require_once($CFG->dirroot . '/local/quizanalytics/classes/quiz/cache_helper.php');
+require_once($CFG->dirroot . '/local/quizanalytics/classes/quiz/prepared_store.php');
 require_once($CFG->dirroot . '/local/quizanalytics/classes/section_selector.php');
 
 use local_quizanalytics\quiz\output\sections_output_helper;
@@ -122,8 +123,14 @@ $selectedquiz = $stackquizzes[$quizid];
 // Visualization here. Question Analytics is currently the only
 // teacher-facing individual-quiz workflow — the previous Solution Process
 // view remains in the codebase below (for possible redesign) but is
-// intentionally not exposed via a selector any more.
-$view = 'question';
+// intentionally not exposed via a selector any more. Still read from
+// ?view= (defaulting to 'question') rather than hardcoded, so it stays
+// reachable by direct URL as documented in README.md/this file's own
+// docblock — only the on-screen <select> is gone, not the URL param.
+$view = optional_param('view', 'question', PARAM_ALPHA);
+if ($view !== 'question' && $view !== 'solutionprocess') {
+    $view = 'question';
+}
 $PAGE->url->param('view', $view);
 
 $colorblind = sections_output_helper::resolve_colorblind_mode();
@@ -143,6 +150,13 @@ echo $OUTPUT->heading($selectedquiz->name, 3, 'main mt-4 mb-3');
 // $records fetch below.
 $snapshot = local_quizanalytics_quiz_data_fetcher::get_quiz_snapshot($selectedquiz, $course);
 $stats = local_quizanalytics_quiz_cache_helper::stats_for_quiz($selectedquiz);
+$progressurl = (new moodle_url('/local/quizanalytics/progress.php', [
+    'id' => $courseid,
+    'fingerprint' => $stats->fingerprint,
+    'gradetype' => 'Question Analytics',
+    'colorblind' => (int) $colorblind,
+    'anonymize' => (int) $anonymize,
+]))->out(false);
 if ($stats->count === 0) {
     echo $OUTPUT->notification(get_string('noattempts', 'local_quizanalytics'), 'notifymessage');
     echo $OUTPUT->footer();
@@ -168,6 +182,21 @@ if ($view === 'question') {
         $anonymize
     );
     $result = $qacache->get($qakey);
+    $showingstale = false;
+    if ($result === false) {
+        $prepared = \local_quizanalytics_prepared_store::get($courseid, $quizid, 'question');
+        $preparedpayload = \local_quizanalytics_prepared_store::decode($prepared);
+        if ($preparedpayload !== null) {
+            if (\local_quizanalytics_prepared_store::is_fresh($prepared, $stats->fingerprint)) {
+                $result = $preparedpayload;
+                $qacache->set($qakey, $result);
+            } else {
+                $result = $preparedpayload;
+                $showingstale = true;
+                \local_quizanalytics\task\warm_single_view_adhoc_task::dispatch_next_question_quiz_for_course($courseid);
+            }
+        }
+    }
     if ($result === false) {
         // Times a real, small sample fetch for this quiz on this host —
         // see estimate_seconds_per_attempt()'s own comment for why a fixed
@@ -186,7 +215,7 @@ if ($view === 'question') {
             $age = \local_quizanalytics\task\warm_single_view_adhoc_task::get_queued_age_seconds([
                 'type' => 'quiz', 'id' => $selectedquiz->id, 'colorblind' => $colorblind, 'anonymize' => $anonymize,
             ]);
-            sections_output_helper::render_generating_in_background_notice($age);
+            sections_output_helper::render_generating_in_background_notice($age, $progressurl);
             echo $OUTPUT->footer();
             exit;
         }
@@ -203,10 +232,24 @@ if ($view === 'question') {
         ignore_user_abort($previousabort);
     }
 
+    if (is_array($result)) {
+        $reviewurl = (new moodle_url('/local/quizanalytics/questionreview.php', [
+            'id' => $courseid,
+            'quizid' => $quizid,
+            'colorblind' => (int) $colorblind,
+            'anonymize' => (int) $anonymize,
+        ]))->out(false);
+        $result = \local_quizanalytics\quiz\analytics\question_analysis::to_lightweight_review($result, $reviewurl);
+    }
+
     if ($result === null) {
         echo $OUTPUT->notification(get_string('servererror', 'local_quizanalytics'), 'notifyproblem');
         echo $OUTPUT->footer();
         exit;
+    }
+
+    if ($showingstale) {
+        echo $OUTPUT->notification(get_string('showingstale', 'local_quizanalytics'), 'notifymessage');
     }
 
     echo sections_output_helper::render_containers('qa');

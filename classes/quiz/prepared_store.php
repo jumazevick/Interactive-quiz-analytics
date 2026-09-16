@@ -7,26 +7,32 @@ defined('MOODLE_INTERNAL') || die();
 class local_quizanalytics_prepared_store {
     private const TABLE = 'local_quizanalytics_prepared';
 
-    public static function get_course(int $courseid): array {
+    public static function get_course(int $courseid, ?string $datatype = null): array {
         global $DB;
-        $records = $DB->get_records(self::TABLE, ['courseid' => $courseid], 'quizid ASC');
+        $select = ['courseid' => $courseid];
+        if ($datatype !== null) {
+            $select['datatype'] = $datatype;
+        }
+        $records = $DB->get_records(self::TABLE, $select, 'quizid ASC');
         $byquiz = [];
         foreach ($records as $record) {
-            $byquiz[(int) $record->quizid] = $record;
+            $byquiz[(int) $record->quizid . ':' . ($record->datatype ?? 'course')] = $record;
         }
         return $byquiz;
     }
 
-    public static function get(int $courseid, int $quizid): ?stdClass {
+    public static function get(int $courseid, int $quizid, string $datatype = 'course'): ?stdClass {
         global $DB;
-        $row = $DB->get_record(self::TABLE, ['courseid' => $courseid, 'quizid' => $quizid]);
+        $row = $DB->get_record(self::TABLE, [
+            'courseid' => $courseid, 'quizid' => $quizid, 'datatype' => $datatype,
+        ]);
         return $row ?: null;
     }
 
-    public static function mark_running(int $courseid, int $quizid): void {
+    public static function mark_running(int $courseid, int $quizid, string $datatype = 'course'): void {
         global $DB;
         $now = time();
-        $row = self::get($courseid, $quizid);
+        $row = self::get($courseid, $quizid, $datatype);
         if ($row) {
             $DB->update_record(self::TABLE, (object) [
                 'id' => $row->id, 'status' => 'running', 'timemodified' => $now, 'lasterror' => null,
@@ -34,16 +40,20 @@ class local_quizanalytics_prepared_store {
             return;
         }
         $DB->insert_record(self::TABLE, (object) [
-            'courseid' => $courseid, 'quizid' => $quizid, 'fingerprint' => '', 'status' => 'running',
+            'courseid' => $courseid, 'quizid' => $quizid, 'datatype' => $datatype,
+            'fingerprint' => '', 'status' => 'running',
             'payload' => '', 'lastsuccess' => 0, 'timemodified' => $now, 'lasterror' => null,
         ]);
     }
 
-    public static function save_success(int $courseid, int $quizid, string $fingerprint, array $payload): void {
+    public static function save_success(
+        int $courseid, int $quizid, string $fingerprint, array $payload, string $datatype = 'course'
+    ): void {
         global $DB;
-        $row = self::get($courseid, $quizid);
+        $row = self::get($courseid, $quizid, $datatype);
         $data = (object) [
-            'courseid' => $courseid, 'quizid' => $quizid, 'fingerprint' => $fingerprint,
+            'courseid' => $courseid, 'quizid' => $quizid, 'datatype' => $datatype,
+            'fingerprint' => $fingerprint,
             'status' => 'complete', 'payload' => json_encode($payload, JSON_THROW_ON_ERROR),
             'lastsuccess' => time(), 'timemodified' => time(), 'lasterror' => null,
         ];
@@ -55,9 +65,9 @@ class local_quizanalytics_prepared_store {
         }
     }
 
-    public static function mark_failed(int $courseid, int $quizid, string $message): void {
+    public static function mark_failed(int $courseid, int $quizid, string $message, string $datatype = 'course'): void {
         global $DB;
-        $row = self::get($courseid, $quizid);
+        $row = self::get($courseid, $quizid, $datatype);
         if ($row) {
             // Keep a previously successful payload available as stale data;
             // the next page load can still render it while this quiz retries.
@@ -66,6 +76,22 @@ class local_quizanalytics_prepared_store {
             $DB->update_record(self::TABLE, (object) [
                 'id' => $row->id, 'status' => $status, 'timemodified' => time(),
                 'lasterror' => substr($message, 0, 65535),
+            ]);
+        }
+    }
+
+    public static function mark_stale(int $courseid, int $quizid, string $datatype = 'question'): void {
+        global $DB;
+        $row = self::get($courseid, $quizid, $datatype);
+        if ($row) {
+            $DB->update_record(self::TABLE, (object) [
+                'id' => $row->id, 'status' => 'stale', 'timemodified' => time(),
+            ]);
+        } else {
+            $DB->insert_record(self::TABLE, (object) [
+                'courseid' => $courseid, 'quizid' => $quizid, 'datatype' => $datatype,
+                'fingerprint' => '', 'status' => 'stale', 'payload' => '',
+                'lastsuccess' => 0, 'timemodified' => time(), 'lasterror' => null,
             ]);
         }
     }

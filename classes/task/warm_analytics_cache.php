@@ -107,6 +107,12 @@ class warm_analytics_cache extends \core\task\scheduled_task {
         // stale; do not perform the raw question-engine work in this sweep.
         foreach (\local_quizanalytics_quiz_data_fetcher::get_courses_with_stack_quizzes() as $courseid) {
             $quizzes = \local_quizanalytics_quiz_data_fetcher::get_course_stack_quizzes((int) $courseid);
+            // Queue one default Question Analytics quiz at a time in Moodle
+            // course order. The adhoc worker queues the next quiz only after
+            // the previous one completes or fails.
+            \local_quizanalytics\task\warm_single_view_adhoc_task::dispatch_next_question_quiz_for_course(
+                (int) $courseid
+            );
             \local_quizanalytics\task\warm_single_view_adhoc_task::dispatch_for_course(
                 (int) $courseid,
                 course_analysis::DEFAULT_GRADE_TYPE,

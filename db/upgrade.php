@@ -27,6 +27,27 @@ defined('MOODLE_INTERNAL') || die();
  * @return bool
  */
 function xmldb_local_quizanalytics_upgrade($oldversion) {
+    if ($oldversion < 2026091600) {
+        global $DB;
+        $dbman = $DB->get_manager();
+        $table = new xmldb_table('local_quizanalytics_prepared');
+        $datatype = new xmldb_field('datatype', XMLDB_TYPE_CHAR, '20', null, XMLDB_NOTNULL, null, 'course', 'quizid');
+        if ($dbman->table_exists($table) && !$dbman->field_exists($table, $datatype)) {
+            $dbman->add_field($table, $datatype);
+            $DB->set_field('local_quizanalytics_prepared', 'datatype', 'course', []);
+        }
+        $oldkey = new xmldb_key('coursequiz', XMLDB_KEY_UNIQUE, ['courseid', 'quizid']);
+        $newkey = new xmldb_key('coursequiztype', XMLDB_KEY_UNIQUE, ['courseid', 'quizid', 'datatype']);
+        if ($dbman->table_exists($table)) {
+            if ($dbman->find_key_name($table, $oldkey)) {
+                $dbman->drop_key($table, $oldkey);
+            }
+            if (!$dbman->find_key_name($table, $newkey)) {
+                $dbman->add_key($table, $newkey);
+            }
+        }
+        upgrade_plugin_savepoint(true, 2026091600, 'local', 'quizanalytics');
+    }
     if ($oldversion < 2026091400) {
         require_once(__DIR__ . '/install.php');
         local_quizanalytics_create_prepared_table();

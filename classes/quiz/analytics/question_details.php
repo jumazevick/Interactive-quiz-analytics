@@ -110,7 +110,7 @@ class question_details {
                 ];
             }
             $versions[] = [
-                'label' => 'Version ' . $versionnumber++,
+                    'label' => 'Variant ' . $versionnumber++,
                 'students' => count($group['students']),
                 'question_text' => $group['question_text'],
                 'question_text_raw' => $group['question_text_raw'],

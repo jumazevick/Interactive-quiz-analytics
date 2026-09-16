@@ -18,12 +18,10 @@ class local_quizanalytics_event_observer {
         }
         require_once(__DIR__ . '/quiz/prepared_store.php');
         require_once(__DIR__ . '/task/warm_single_view_adhoc_task.php');
-        $quizzes = \local_quizanalytics_quiz_data_fetcher::get_course_stack_quizzes((int) $quiz->course);
-        local_quizanalytics_prepared_store::mark_stale((int) $quiz->course, (int) $quiz->id);
-        \local_quizanalytics\task\warm_single_view_adhoc_task::dispatch_for_course(
-            (int) $quiz->course,
-            \local_quizanalytics\quiz\analytics\course_analysis::DEFAULT_GRADE_TYPE,
-            false, false, null, array_keys($quizzes), true
+        local_quizanalytics_prepared_store::mark_stale((int) $quiz->course, (int) $quiz->id, 'course');
+        local_quizanalytics_prepared_store::mark_stale((int) $quiz->course, (int) $quiz->id, 'question');
+        \local_quizanalytics\task\warm_single_view_adhoc_task::dispatch_next_question_quiz_for_course(
+            (int) $quiz->course
         );
     }
 }

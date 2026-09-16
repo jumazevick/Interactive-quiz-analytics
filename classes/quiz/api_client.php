@@ -53,7 +53,8 @@ class local_quizanalytics_quiz_api_client {
         array $records,
         bool $colorblindmode = false,
         bool $anonymize = false,
-        ?array $snapshot = null
+        ?array $snapshot = null,
+        ?callable $progresscallback = null
     ): ?array {
         try {
             return \local_quizanalytics\quiz\analytics\question_analysis::build_analysis(
@@ -61,7 +62,8 @@ class local_quizanalytics_quiz_api_client {
                 $quizname,
                 $colorblindmode,
                 $anonymize,
-                $snapshot
+                $snapshot,
+                $progresscallback
             );
         } catch (\Throwable $e) {
             debugging(

@@ -112,12 +112,95 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
      * @param bool $anonymize
      */
     public static function dispatch_for_quiz(int $quizid, bool $colorblind, bool $anonymize): void {
-        self::dispatch([
-            'type' => 'quiz',
-            'id' => $quizid,
-            'colorblind' => $colorblind,
-            'anonymize' => $anonymize,
-        ]);
+        global $DB;
+
+        $quiz = $DB->get_record('quiz', ['id' => $quizid]);
+        if ($quiz) {
+            $stats = \local_quizanalytics_quiz_cache_helper::stats_for_quiz($quiz);
+            $current = self::get_progress(
+                (int) $quiz->course,
+                $stats->fingerprint,
+                'Question Analytics',
+                $colorblind,
+                $anonymize
+            );
+            if ($current === false || ($current['status'] ?? '') !== 'running') {
+                self::set_progress(
+                    (int) $quiz->course,
+                    $stats->fingerprint,
+                    'Question Analytics',
+                    $colorblind,
+                    $anonymize,
+                    'queued',
+                    'queued',
+                    0,
+                    1,
+                    get_string('progressqueued', 'local_quizanalytics')
+                );
+            }
+        }
+
+        if (!$colorblind && !$anonymize && $quiz) {
+            self::dispatch_next_question_quiz_for_course((int) $quiz->course);
+        } else {
+            self::dispatch([
+                'type' => 'quiz',
+                'id' => $quizid,
+                'colorblind' => $colorblind,
+                'anonymize' => $anonymize,
+            ]);
+        }
+    }
+
+    /** Queue the first stale default Question Analytics quiz in Moodle order. */
+    public static function dispatch_next_question_quiz_for_course(int $courseid, int $ignorequizid = 0): void {
+        $ordered = \local_quizanalytics_quiz_data_fetcher::get_course_stack_quizzes($courseid);
+        if (empty($ordered)) {
+            return;
+        }
+        if (self::has_queued_question_quiz_task($courseid, $ignorequizid)) {
+            return;
+        }
+        foreach ($ordered as $quiz) {
+            if ((int) $quiz->id === $ignorequizid) {
+                continue;
+            }
+            $stats = \local_quizanalytics_quiz_cache_helper::stats_for_quiz($quiz);
+            if ($stats->count === 0) {
+                continue;
+            }
+            $row = \local_quizanalytics_prepared_store::get($courseid, (int) $quiz->id, 'question');
+            if (\local_quizanalytics_prepared_store::is_fresh($row, $stats->fingerprint)) {
+                continue;
+            }
+            self::set_progress(
+                $courseid, $stats->fingerprint, 'Question Analytics', false, false,
+                'queued', 'queued', 0, 0,
+                get_string('progressqueued', 'local_quizanalytics')
+            );
+            self::dispatch([
+                'type' => 'quiz', 'id' => (int) $quiz->id,
+                'colorblind' => false, 'anonymize' => false,
+            ]);
+            return;
+        }
+    }
+
+    private static function has_queued_question_quiz_task(int $courseid, int $ignorequizid = 0): bool {
+        global $DB;
+        $classname = '\\local_quizanalytics\\task\\warm_single_view_adhoc_task';
+        $tasks = $DB->get_records('task_adhoc', ['classname' => $classname]);
+        foreach ($tasks as $task) {
+            $customdata = json_decode((string) $task->customdata, true);
+            if (!is_array($customdata) || ($customdata['type'] ?? '') !== 'quiz') {
+                continue;
+            }
+            $quiz = $DB->get_record('quiz', ['id' => (int) ($customdata['id'] ?? 0)], 'id,course');
+            if ($quiz && (int) $quiz->course === $courseid && (int) $quiz->id !== $ignorequizid) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -234,10 +317,6 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
             // quizzes divided by total quizzes. Do not add artificial
             // stage-weight percentages to this unit-of-work progress.
             $percent = (int) round(100 * ($completed / $total));
-        } else if ($stage === 'analyzing') {
-            $percent = 100;
-        } else if ($stage === 'saving') {
-            $percent = 100;
         }
         $cache->set($key, [
             'status' => $status,
@@ -249,6 +328,7 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
             'started' => $started,
             'updated' => time(),
             'elapsed' => max(0, time() - $started),
+            'currentquestion' => $details['currentquestion'] ?? '',
             'details' => array_merge($previousdetails, $details),
         ]);
     }
@@ -509,6 +589,9 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
             return;
         }
 
+        $snapshot = \local_quizanalytics_quiz_data_fetcher::get_quiz_snapshot($quiz, $course);
+        $snapshotkey = md5(json_encode($snapshot));
+
         $cache = \cache::make('local_quizanalytics', 'solutionprocessmeta');
         $key = \local_quizanalytics_quiz_cache_helper::build_key($quiz->id, $stats->fingerprint, $anonymize);
         if ($cache->get($key) !== false) {
@@ -545,16 +628,163 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
             return;
         }
 
+        // Keep the background result key identical to questionanalytics.php:
+        // the snapshot is part of the key so a changed quiz snapshot cannot
+        // serve an older Question Analytics result.
+        $snapshot = \local_quizanalytics_quiz_data_fetcher::get_quiz_snapshot($quiz, $course);
+        $snapshotkey = md5(json_encode($snapshot));
+
+        self::set_progress(
+            (int) $quiz->course,
+            $stats->fingerprint,
+            'Question Analytics',
+            $colorblind,
+            $anonymize,
+            'running',
+            'processing',
+            0,
+            0,
+            get_string('progressprocessing', 'local_quizanalytics', (object) [
+                'completed' => 0,
+                'total' => 1,
+            ])
+        );
+
         $cache = \cache::make('local_quizanalytics', 'questionanalysis');
-        $key = \local_quizanalytics_quiz_cache_helper::build_key($quiz->id, $stats->fingerprint, $colorblind, $anonymize);
-        if ($cache->get($key) !== false) {
+        $key = \local_quizanalytics_quiz_cache_helper::build_key(
+            $quiz->id, $stats->fingerprint, $snapshotkey, $colorblind, $anonymize
+        );
+        $cached = $cache->get($key);
+        if ($cached !== false) {
+            self::set_progress(
+                (int) $quiz->course,
+                $stats->fingerprint,
+                'Question Analytics',
+                $colorblind,
+                $anonymize,
+                'complete', 'complete', 1, 1,
+                get_string('progresscomplete', 'local_quizanalytics')
+            );
+        }
+        if ($cached !== false) {
             return; // Already warmed — cron or another dispatch beat this task to it.
         }
 
+        $prepared = \local_quizanalytics_prepared_store::get(
+            (int) $quiz->course, (int) $quiz->id, 'question'
+        );
+        if (!$colorblind && !$anonymize &&
+                \local_quizanalytics_prepared_store::is_fresh($prepared, $stats->fingerprint)) {
+            $preparedpayload = \local_quizanalytics_prepared_store::decode($prepared);
+            if ($preparedpayload !== null) {
+                $cache->set($key, $preparedpayload);
+                self::set_progress(
+                    (int) $quiz->course, $stats->fingerprint, 'Question Analytics',
+                    $colorblind, $anonymize, 'complete', 'complete', 1, 1,
+                    get_string('progresscomplete', 'local_quizanalytics')
+                );
+                return;
+            }
+        }
+        if (!$colorblind && !$anonymize) {
+            \local_quizanalytics_prepared_store::mark_running(
+                (int) $quiz->course, (int) $quiz->id, 'question'
+            );
+        }
+
         $records = \local_quizanalytics_quiz_data_fetcher::get_response_records_for_quiz($quiz, $course);
-        $result = $client->analyze($quiz->name, $records, $colorblind, $anonymize);
+        self::set_progress(
+            (int) $quiz->course,
+            $stats->fingerprint,
+            'Question Analytics',
+            $colorblind,
+            $anonymize,
+            'running',
+            'analyzing',
+            0,
+            0,
+            get_string('progressanalyzing', 'local_quizanalytics')
+        );
+        $progresscallback = function(int $completed, int $total, string $question) use ($quiz, $stats, $colorblind, $anonymize): void {
+            self::set_progress(
+                (int) $quiz->course,
+                $stats->fingerprint,
+                'Question Analytics',
+                $colorblind,
+                $anonymize,
+                'running',
+                'processing',
+                $completed,
+                $total,
+                'Preparing question analytics: processing ' . ($question !== '' ? $question : 'questions') .
+                    ($total > 0 ? ' (' . $completed . '/' . $total . ')' : ''),
+                ['currentquestion' => $question]
+            );
+        };
+        try {
+            $result = $client->analyze($quiz->name, $records, $colorblind, $anonymize, $snapshot, $progresscallback);
+        } catch (\Throwable $e) {
+            if (!$colorblind && !$anonymize) {
+                \local_quizanalytics_prepared_store::mark_failed(
+                    (int) $quiz->course, (int) $quiz->id, $e->getMessage(), 'question'
+                );
+            }
+            self::set_progress(
+                (int) $quiz->course, $stats->fingerprint, 'Question Analytics',
+                $colorblind, $anonymize, 'failed', 'failed', 0, 1,
+                'Question Analytics failed: ' . $e->getMessage()
+            );
+            mtrace('local_quizanalytics: Question Analytics failed for quiz ' . $quiz->id . ': ' . $e->getMessage());
+            self::dispatch_next_question_quiz_for_course((int) $quiz->course, (int) $quiz->id);
+            return;
+        }
         if ($result !== null) {
             $cache->set($key, $result);
+            if (!$colorblind && !$anonymize) {
+                $lateststats = \local_quizanalytics_quiz_cache_helper::stats_for_quiz($quiz);
+                if ($lateststats->fingerprint === $stats->fingerprint) {
+                    \local_quizanalytics_prepared_store::save_success(
+                        (int) $quiz->course, (int) $quiz->id, $stats->fingerprint, $result, 'question'
+                    );
+                } else {
+                    \local_quizanalytics_prepared_store::mark_stale(
+                        (int) $quiz->course, (int) $quiz->id, 'question'
+                    );
+                }
+            }
+            self::set_progress(
+                (int) $quiz->course,
+                $stats->fingerprint,
+                'Question Analytics',
+                $colorblind,
+                $anonymize,
+                'complete',
+                'complete',
+                1,
+                1,
+                get_string('progresscomplete', 'local_quizanalytics')
+            );
+            self::dispatch_next_question_quiz_for_course((int) $quiz->course, (int) $quiz->id);
+        } else {
+            if (!$colorblind && !$anonymize) {
+                \local_quizanalytics_prepared_store::mark_failed(
+                    (int) $quiz->course, (int) $quiz->id,
+                    'Question Analytics returned no result', 'question'
+                );
+            }
+            self::set_progress(
+                (int) $quiz->course,
+                $stats->fingerprint,
+                'Question Analytics',
+                $colorblind,
+                $anonymize,
+                'failed',
+                'failed',
+                0,
+                1,
+                get_string('progressfailed', 'local_quizanalytics')
+            );
+            self::dispatch_next_question_quiz_for_course((int) $quiz->course, (int) $quiz->id);
         }
     }
 

@@ -168,7 +168,10 @@ class sections_output_helper {
      *        determined (falls back to the ordinary notice rather than
      *        risking a false "stuck" warning).
      */
-    public static function render_generating_in_background_notice(?int $queuedagesecs = null): void {
+    public static function render_generating_in_background_notice(
+        ?int $queuedagesecs = null,
+        ?string $progressurl = null
+    ): void {
         if ($queuedagesecs !== null && $queuedagesecs > \local_quizanalytics\task\warm_single_view_adhoc_task::STALE_SECONDS) {
             // No auto-refresh here: the task is genuinely stuck (or cron
             // isn't running at all), so repeatedly reloading only repeats
@@ -181,6 +184,62 @@ class sections_output_helper {
             );
             return;
         }
+        if ($progressurl !== null) {
+            global $PAGE;
+
+            echo \html_writer::div(
+                \html_writer::div(
+                    \html_writer::div('', 'progress-bar', [
+                        'id' => 'local-quizanalytics-progress-bar',
+                        'role' => 'progressbar',
+                        'style' => 'width: 0%',
+                        'aria-valuenow' => 0,
+                        'aria-valuemin' => 0,
+                        'aria-valuemax' => 100,
+                    ]),
+                    'progress mb-2'
+                ) . \html_writer::div('', '', [
+                    'id' => 'local-quizanalytics-progress-message',
+                    'aria-live' => 'polite',
+                ]),
+                'local-quizanalytics-progress mb-3',
+                ['id' => 'local-quizanalytics-progress', 'data-progress-url' => $progressurl]
+            );
+            $progressscript = '(function() {'
+                . 'var url = ' . json_encode($progressurl) . ';'
+                . 'var poll = function() {'
+                . 'fetch(url, {credentials: "same-origin", cache: "no-store"})'
+                . '.then(function(response) { return response.json(); })'
+                . '.then(function(data) {'
+                . 'var bar = document.getElementById("local-quizanalytics-progress-bar");'
+                . 'var message = document.getElementById("local-quizanalytics-progress-message");'
+                . 'if (!bar || !message) { return; }'
+                . 'var percent = Math.max(0, Math.min(100, Number(data.percent) || 0));'
+                . 'bar.style.width = percent + "%";'
+                . 'bar.setAttribute("aria-valuenow", percent);'
+                . 'bar.textContent = percent + "%";'
+                . 'message.textContent = data.message || "";'
+                . 'if (data.completed && data.total) {'
+                . 'message.textContent += " (" + data.completed + "/" + data.total + ")";'
+                . '}'
+                . 'if (data.status === "complete") {'
+                . 'window.setTimeout(function() { window.location.reload(); }, 500);'
+                . '} else if (data.status === "failed") {'
+                . 'message.textContent = data.message || "Analytics preparation failed.";'
+                . '} else {'
+                . 'window.setTimeout(poll, 3000);'
+                . '}'
+                . '})'
+                . '.catch(function() { window.setTimeout(poll, 3000); });'
+                . '}; poll(); })();';
+            echo \html_writer::script($progressscript);
+            echo \html_writer::div(
+                get_string('generatinginbackground', 'local_quizanalytics'),
+                'alert alert-info'
+            );
+            return;
+        }
+
         // Auto-refreshing via a plain <meta> tag (not JS) matches this
         // plugin's own established "plain GET-reload, no JS needed"
         // convention elsewhere (native <details>, plain forms) — and

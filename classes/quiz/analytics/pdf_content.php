@@ -138,8 +138,8 @@ class pdf_content {
                 $table = [
                     'columns' => [
                         get_string('selectquestion', 'local_quizanalytics'),
-                        'Version',
-                        'Students (version)',
+                        'Variant',
+                        'Students (variant)',
                         'Common incorrect response',
                         'Students (response)',
                     ],

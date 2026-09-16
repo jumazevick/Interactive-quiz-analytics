@@ -34,6 +34,28 @@ namespace local_quizanalytics\quiz\analytics;
  */
 class question_analysis {
     /**
+     * Remove the expensive per-variant detail from the lecturer-facing
+     * payload. The complete result remains in the questionanalysis MUC cache
+     * and is retrieved by questionreview.php only for the selected variant.
+     *
+     * @param array $result
+     * @param string $reviewurl
+     * @return array
+     */
+    public static function to_lightweight_review(array $result, string $reviewurl): array {
+        foreach ($result['questions'] ?? [] as &$detail) {
+            foreach ($detail['versions'] ?? [] as &$version) {
+                unset($version['question_text_html'], $version['question_text_raw'], $version['question_text']);
+                unset($version['common_responses']);
+            }
+            unset($version);
+        }
+        unset($detail);
+        $result['question_review_url'] = $reviewurl;
+        return $result;
+    }
+
+    /**
      * Builds the individual Question Analytics payload: response overview
      * and per-question drill-down.
      *
@@ -51,7 +73,8 @@ class question_analysis {
         string $quizname,
         bool $colorblindmode = false,
         bool $anonymize = false,
-        ?array $snapshot = null
+        ?array $snapshot = null,
+        ?callable $progresscallback = null
     ): array {
         $responserows = parser::build_response_rows($records, $quizname, $anonymize);
 
@@ -75,6 +98,27 @@ class question_analysis {
         $sections = [];
         $questionorder = array_map(fn($r) => $r['question'], $questionmetricsrows);
 
+        $facilityrows = array_values(array_filter(
+            $snapshot['question_facilities'] ?? [],
+            fn($row) => array_key_exists('facility_index', $row)
+        ));
+        if (!empty($facilityrows)) {
+            $sections[] = [
+                'id' => 'facility-index',
+                'title' => 'Facility Index',
+                'caption' => 'Moodle\'s official measure of how easy each question was in practice. Low values highlight questions that may need review; dashed lines mark 30% and 70%.',
+                'documentation_link' => [
+                    'url' => 'https://docs.moodle.org/404/en/mod/quiz/statistics',
+                    'label' => 'Read Moodle\'s Facility Index documentation',
+                ],
+                'charts' => [[
+                    'id' => 'facility-index-fig',
+                    'title' => null,
+                    'plotly_json' => question_charts::build_facility_index_figure($facilityrows, $colorblindmode),
+                ]],
+            ];
+        }
+
         // Question Response Overview — replaces the old Question Difficulty
         // Analysis / Question Response Distribution / Student Performance
         // Matrix / Question Metrics sections with a single chart, matching
@@ -94,11 +138,16 @@ class question_analysis {
             'charts' => $responsecharts,
         ];
 
+        $totalquestions = count($questionorder);
+        if ($progresscallback !== null) {
+            $progresscallback(0, $totalquestions, '');
+        }
+
         // Per-question detail (drives the PHP question <select>), grouped by
         // instantiated STACK question "version" so randomized variants don't
         // mix their expected answers/wrong-response lists together.
         $questions = [];
-        foreach ($questionorder as $q) {
+        foreach ($questionorder as $questionindex => $q) {
             $versions = question_details::build_versioned_review($poolb, $q);
             foreach ($versions as &$version) {
                 // Debug-dump detection stays on the raw (pre-format_text) HTML,
@@ -122,6 +171,9 @@ class question_analysis {
             $questions[$q] = [
                 'versions' => $versions,
             ];
+            if ($progresscallback !== null) {
+                $progresscallback($questionindex + 1, $totalquestions, $q);
+            }
         }
 
         return [

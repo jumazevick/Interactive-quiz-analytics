@@ -52,10 +52,6 @@
         'completed_dt': 'Completed On',
         'first_grade': 'First Grade',
         'latest_grade': 'Latest Grade',
-        'mean_grade': 'Mean Attempt Mark',
-        'grade_variance': 'Attempt Mark Variance',
-        'mean_highest_grade': 'Mean Best Attempt Mark',
-        'facility_index': 'Mean Question Facility Index',
     };
 
     function humanizeLabel(key) {
@@ -315,6 +311,16 @@
         global.Plotly.newPlot(container, chart.plotly_json.data, chart.plotly_json.layout, {
             responsive: true,
         });
+        if (Array.isArray(chart.links)) {
+            container.on('plotly_click', function (event) {
+                var point = event && event.points && event.points[0];
+                var href = point && chart.links[point.pointNumber];
+                if (href) {
+                    window.open(href, '_blank', 'noopener,noreferrer');
+                }
+            });
+            container.style.cursor = 'pointer';
+        }
         return container;
     }
 
@@ -456,30 +462,18 @@
         }
         if (section.caption) {
             var caption = document.createElement('p');
-            if (section.caption_html) {
-                caption.innerHTML = section.caption_html;
-            } else {
-                caption.textContent = section.caption;
-            }
+            caption.textContent = section.caption;
             wrapper.appendChild(caption);
         }
-        if (section.column_help) {
-            var help = document.createElement('details');
-            help.className = 'mb-3';
-            var summary = document.createElement('summary');
-            summary.textContent = 'Column guide';
-            help.appendChild(summary);
-            var helpList = document.createElement('ul');
-            Object.keys(section.column_help).forEach(function (column) {
-                var item = document.createElement('li');
-                var label = document.createElement('strong');
-                label.textContent = humanizeLabel(column) + ': ';
-                item.appendChild(label);
-                item.appendChild(document.createTextNode(section.column_help[column]));
-                helpList.appendChild(item);
-            });
-            help.appendChild(helpList);
-            wrapper.appendChild(help);
+        if (section.documentation_link && section.documentation_link.url && section.documentation_link.label) {
+            var documentation = document.createElement('p');
+            var documentationLink = document.createElement('a');
+            documentationLink.href = section.documentation_link.url;
+            documentationLink.target = '_blank';
+            documentationLink.rel = 'noopener noreferrer';
+            documentationLink.textContent = section.documentation_link.label;
+            documentation.appendChild(documentationLink);
+            wrapper.appendChild(documentation);
         }
         if (section.table) {
             renderDataTable(wrapper, section.table);
@@ -657,6 +651,183 @@
         typesetMath(wrapper);
     }
 
+    function renderVariantReviewCard(block, question, version, index, reviewUrl) {
+        var old = block.querySelector('.qa-variant-detail');
+        if (old) old.remove();
+        var card = document.createElement('div');
+        card.className = 'qa-variant-detail';
+        card.style.marginTop = '1rem';
+        card.style.padding = '1rem 1.25rem';
+        card.style.border = '1px solid #d3d9e0';
+        card.style.borderRadius = '0.5rem';
+        var heading = document.createElement('h5');
+        heading.textContent = version.label.replace(/^Version\b/, 'Variant');
+        card.appendChild(heading);
+        card.appendChild(document.createTextNode('Students receiving variant: ' + formatCellValue(version.students)));
+        var answer = document.createElement('p');
+        answer.innerHTML = '<strong>Expected answer:</strong> ' + (version.right_answer_html || '');
+        card.appendChild(answer);
+        var questionBox = document.createElement('div');
+        var responseBox = document.createElement('div');
+        var questionButton = document.createElement('button');
+        questionButton.type = 'button';
+        questionButton.className = 'btn btn-secondary btn-sm mr-2';
+        questionButton.textContent = 'View full question';
+        questionButton.addEventListener('click', function () { loadVariantReview(questionBox, reviewUrl, question, index, 'question'); });
+        var responseButton = document.createElement('button');
+        responseButton.type = 'button';
+        responseButton.className = 'btn btn-secondary btn-sm';
+        responseButton.textContent = 'View responses';
+        responseButton.addEventListener('click', function () { loadVariantReview(responseBox, reviewUrl, question, index, 'responses'); });
+        card.appendChild(questionButton);
+        card.appendChild(responseButton);
+        card.appendChild(questionBox);
+        card.appendChild(responseBox);
+        block.appendChild(card);
+        typesetMath(card);
+    }
+
+    function loadVariantReview(target, reviewUrl, question, index, mode) {
+        if (target.dataset.loaded === mode) return;
+        target.textContent = 'Loading…';
+        var url = new URL(reviewUrl, global.location.href);
+        url.searchParams.set('question', question);
+        url.searchParams.set('variant', index);
+        fetch(url.toString(), {credentials: 'same-origin', cache: 'no-store'})
+            .then(function (response) { return response.json(); })
+            .then(function (version) {
+                target.textContent = '';
+                target.dataset.loaded = mode;
+                if (mode === 'question') {
+                    var heading = document.createElement('h6');
+                    heading.textContent = 'Full question';
+                    target.appendChild(heading);
+                    var text = document.createElement('div');
+                    text.innerHTML = version.question_text_html || '';
+                    target.appendChild(text);
+                } else {
+                    renderVariantResponses(target, version.common_responses || [], version.students);
+                }
+                typesetMath(target);
+            })
+            .catch(function () { target.textContent = 'Unable to load this prepared variant.'; });
+    }
+
+    function renderVariantResponses(target, responses, denominator) {
+        var heading = document.createElement('h6');
+        heading.textContent = 'Most common incorrect responses';
+        target.appendChild(heading);
+        if (!responses.length) {
+            target.appendChild(document.createTextNode('No incorrect response patterns were found.'));
+            return;
+        }
+        var visible = 5;
+        function draw() {
+            var old = target.querySelector('table');
+            if (old) old.remove();
+            renderDataTable(target, {
+                columns: ['Response', 'Students', '% of variant'],
+                rows: responses.slice(0, visible).map(function (item) {
+                    var percent = denominator ? (Number(item.students) / Number(denominator) * 100).toFixed(1) + '%' : 'N/A';
+                    return [item.response, item.students, percent];
+                }),
+            });
+            var more = target.querySelector('.qa-show-more');
+            if (more) more.remove();
+            if (visible < responses.length) {
+                more = document.createElement('button');
+                more.type = 'button';
+                more.className = 'btn btn-link qa-show-more';
+                more.textContent = 'Show more responses';
+                more.addEventListener('click', function () { visible = responses.length; draw(); });
+                target.appendChild(more);
+            }
+        }
+        draw();
+    }
+
+    function renderQuestionDetailsLazy(root, prefix, questions, snapshot, reviewUrl) {
+        var names = Object.keys(questions || {});
+        if (!names.length) return;
+        var wrapper = document.createElement('div');
+        wrapper.className = 'qa-section';
+        styleSectionWrapper(wrapper);
+        wrapper.id = prefix + '-section-questiondetails';
+        var heading = document.createElement('h4');
+        heading.textContent = 'Question Review';
+        wrapper.appendChild(heading);
+        var caption = document.createElement('p');
+        caption.textContent = 'Compare variants first, then load the full question or response patterns only when needed.';
+        wrapper.appendChild(caption);
+        var selectId = prefix + '-question-select-' + (questionBlockCounter++);
+        var label = document.createElement('label');
+        label.setAttribute('for', selectId);
+        label.textContent = 'Select Question: ';
+        label.style.fontWeight = '600';
+        label.style.marginRight = '0.5rem';
+        wrapper.appendChild(label);
+        var select = document.createElement('select');
+        select.id = selectId;
+        select.style.minWidth = '10rem';
+        names.forEach(function (name) {
+            var option = document.createElement('option');
+            option.value = name;
+            option.textContent = name;
+            select.appendChild(option);
+        });
+        wrapper.appendChild(select);
+        var blocksRoot = document.createElement('div');
+        names.forEach(function (name, i) {
+            var block = document.createElement('div');
+            block.className = 'qa-question-block';
+            block.setAttribute('data-question', name);
+            block.style.display = i === 0 ? 'block' : 'none';
+            block.style.marginTop = '1rem';
+            var versions = questions[name].versions || [];
+            if (versions.length === 1) {
+                renderVariantReviewCard(block, name, versions[0], 0, reviewUrl);
+            } else {
+                var table = document.createElement('table');
+                table.className = 'generaltable';
+                table.innerHTML = '<thead><tr><th>Variant</th><th>Students</th><th>Expected answer</th><th>Action</th></tr></thead>';
+                var tbody = table.createTBody();
+                versions.forEach(function (version, index) {
+                    var row = tbody.insertRow();
+                    row.insertCell().textContent = version.label.replace(/^Version\b/, 'Variant');
+                    row.insertCell().textContent = formatCellValue(version.students);
+                    row.insertCell().innerHTML = version.right_answer_html || '';
+                    var action = row.insertCell();
+                    var button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'btn btn-secondary btn-sm';
+                    button.textContent = 'View details';
+                    button.addEventListener('click', function () { renderVariantReviewCard(block, name, version, index, reviewUrl); });
+                    action.appendChild(button);
+                });
+                block.appendChild(wrapScrollable(table, versions.length));
+            }
+            blocksRoot.appendChild(block);
+        });
+        wrapper.appendChild(blocksRoot);
+        select.addEventListener('change', function () {
+            Array.prototype.forEach.call(blocksRoot.children, function (block) {
+                block.style.display = block.getAttribute('data-question') === select.value ? 'block' : 'none';
+            });
+        });
+        if (snapshot && snapshot.quiz_responses_url) {
+            var reportLink = document.createElement('a');
+            reportLink.href = snapshot.quiz_responses_url;
+            reportLink.target = '_blank';
+            reportLink.rel = 'noopener noreferrer';
+            reportLink.textContent = 'View individual responses in Moodle ↗';
+            reportLink.style.display = 'inline-block';
+            reportLink.style.marginTop = '1rem';
+            wrapper.appendChild(reportLink);
+        }
+        root.appendChild(wrapper);
+        typesetMath(wrapper);
+    }
+
     function renderAudit(root, prefix, audit) {
         if (!audit) {
             return;
@@ -773,7 +944,7 @@
             result.sections.forEach(function (section) {
                 renderSection(sectionsRoot, section, prefix);
                 if (section.id === 'question-response-overview') {
-                    renderQuestionDetails(sectionsRoot, prefix, result.questions, result.snapshot);
+                    renderQuestionDetailsLazy(sectionsRoot, prefix, result.questions, result.snapshot, result.question_review_url);
                 }
             });
             renderAudit(sectionsRoot, prefix, result.audit);
