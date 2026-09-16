@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<XMLDB PATH="local/quizanalytics/db" VERSION="2026091600" COMMENT="XMLDB file for local_quizanalytics plugin" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../../lib/xmldb/xmldb.xsd">
+    <TABLES>
+        <TABLE NAME="local_quizanalytics_prepared" COMMENT="Durable per-quiz analytics preparation payloads">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true" />
+                <FIELD NAME="courseid" TYPE="int" LENGTH="10" NOTNULL="true" />
+                <FIELD NAME="quizid" TYPE="int" LENGTH="10" NOTNULL="true" />
+                <FIELD NAME="datatype" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="course" />
+                <FIELD NAME="fingerprint" TYPE="char" LENGTH="32" NOTNULL="true" DEFAULT="" />
+                <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="stale" />
+                <FIELD NAME="payload" TYPE="text" NOTNULL="true" />
+                <FIELD NAME="lastsuccess" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" />
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" />
+                <FIELD NAME="lasterror" TYPE="text" />
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id" />
+                <KEY NAME="coursequiztype" TYPE="unique" FIELDS="courseid, quizid, datatype" />
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="course" UNIQUE="false" FIELDS="courseid" />
+            </INDEXES>
+        </TABLE>
+    </TABLES>
+</XMLDB>
