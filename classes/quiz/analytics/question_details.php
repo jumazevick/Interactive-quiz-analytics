@@ -58,12 +58,33 @@ class question_details {
                     'question_text_raw' => $questiontextraw,
                     'right_answer_text' => $rightanswer,
                     'students' => [],
+                    'student_statuses' => [],
                     'sample_attempt_id' => (int) ($row['attempt_id'] ?? 0),
                     'cmid' => (int) ($row['cmid'] ?? 0),
                     'wrong' => [],
+                    'status_counts' => [
+                        'correct' => 0,
+                        'incorrect' => 0,
+                        'invalid' => 0,
+                        'noresponse' => 0,
+                    ],
                 ];
             }
-            $groups[$key]['students'][(string) ($row['student_id'] ?? '')] = true;
+            $studentid = (string) ($row['student_id'] ?? '');
+            $groups[$key]['students'][$studentid] = true;
+
+            // Pool B is already the best overall quiz attempt per student.
+            // Keep a second guard here so each student's status contributes
+            // once per displayed variant even if an upstream export contains
+            // duplicate rows.
+            if (!isset($groups[$key]['student_statuses'][$studentid])) {
+                $status = (string) ($row['response_status'] ?? '');
+                if (!in_array($status, ['correct', 'incorrect', 'invalid'], true)) {
+                    $status = 'noresponse';
+                }
+                $groups[$key]['student_statuses'][$studentid] = $status;
+                $groups[$key]['status_counts'][$status]++;
+            }
 
             if (($row['grade'] ?? null) !== null && (float) $row['grade'] < 1.0) {
                 // A genuinely blank response (no ansN: field at all, so
@@ -109,9 +130,22 @@ class question_details {
                     'review_url' => $reviewurl,
                 ];
             }
+            $students = count($group['students']);
+            $statuscounts = $group['status_counts'];
+            $statustotal = array_sum($statuscounts);
+            if ($statustotal !== $students) {
+                throw new \coding_exception('Question Review response-status counts do not match unique students.');
+            }
+            $notcorrect = $statuscounts['incorrect'] + $statuscounts['invalid'] + $statuscounts['noresponse'];
             $versions[] = [
                     'label' => 'Variant ' . $versionnumber++,
-                'students' => count($group['students']),
+                'students' => $students,
+                'correct' => $statuscounts['correct'],
+                'incorrect' => $statuscounts['incorrect'],
+                'invalid' => $statuscounts['invalid'],
+                'noresponse' => $statuscounts['noresponse'],
+                'not_correct' => $notcorrect,
+                'not_correct_percent' => $students > 0 ? $notcorrect / $students * 100.0 : 0.0,
                 'question_text' => $group['question_text'],
                 'question_text_raw' => $group['question_text_raw'],
                 'right_answer_text' => $group['right_answer_text'],
