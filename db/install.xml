@@ -7,7 +7,7 @@
                 <FIELD NAME="courseid" TYPE="int" LENGTH="10" NOTNULL="true" />
                 <FIELD NAME="quizid" TYPE="int" LENGTH="10" NOTNULL="true" />
                 <FIELD NAME="datatype" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="course" />
-                <FIELD NAME="fingerprint" TYPE="char" LENGTH="32" NOTNULL="true" DEFAULT="" />
+                <FIELD NAME="fingerprint" TYPE="char" LENGTH="32" NOTNULL="true" DEFAULT="00000000000000000000000000000000" />
                 <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="stale" />
                 <FIELD NAME="payload" TYPE="text" NOTNULL="true" />
                 <FIELD NAME="lastsuccess" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" />
