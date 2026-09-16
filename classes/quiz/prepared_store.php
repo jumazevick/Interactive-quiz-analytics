@@ -9,7 +9,12 @@ class local_quizanalytics_prepared_store {
 
     public static function get_course(int $courseid): array {
         global $DB;
-        return $DB->get_records(self::TABLE, ['courseid' => $courseid], 'quizid ASC');
+        $records = $DB->get_records(self::TABLE, ['courseid' => $courseid], 'quizid ASC');
+        $byquiz = [];
+        foreach ($records as $record) {
+            $byquiz[(int) $record->quizid] = $record;
+        }
+        return $byquiz;
     }
 
     public static function get(int $courseid, int $quizid): ?stdClass {
@@ -54,8 +59,12 @@ class local_quizanalytics_prepared_store {
         global $DB;
         $row = self::get($courseid, $quizid);
         if ($row) {
+            // Keep a previously successful payload available as stale data;
+            // the next page load can still render it while this quiz retries.
+            $status = ($row->status === 'complete' && $row->payload !== '')
+                ? 'complete' : 'failed';
             $DB->update_record(self::TABLE, (object) [
-                'id' => $row->id, 'status' => 'failed', 'timemodified' => time(),
+                'id' => $row->id, 'status' => $status, 'timemodified' => time(),
                 'lasterror' => substr($message, 0, 65535),
             ]);
         }

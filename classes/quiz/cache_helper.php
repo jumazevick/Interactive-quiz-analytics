@@ -128,8 +128,23 @@ class local_quizanalytics_quiz_cache_helper {
         )));
     }
 
-    /** Stable cache component for an ordered course-quiz selection. */
+    /**
+     * Normalize a course-quiz selection before it is used in a cache key or
+     * task payload. The numeric sort makes the representation independent of
+     * database/result ordering, while uniqueness prevents duplicate IDs from
+     * creating a different logical selection.
+     *
+     * @param array $quizids
+     * @return int[]
+     */
+    public static function normalize_quiz_ids(array $quizids): array {
+        $quizids = array_values(array_unique(array_map('intval', $quizids)));
+        sort($quizids, SORT_NUMERIC);
+        return $quizids;
+    }
+
+    /** Stable cache component for a normalized course-quiz selection. */
     public static function selection_key(array $quizids): string {
-        return md5(implode(',', array_map('intval', array_values($quizids))));
+        return md5(implode(',', self::normalize_quiz_ids($quizids)));
     }
 }

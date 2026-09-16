@@ -130,7 +130,7 @@ class course_analysis {
                 . 'Mean Question Facility Index is calculated by averaging Moodle\'s question-level '
                 . 'Facility Index values for the STACK questions in each quiz. '
                 . 'Click a quiz name to inspect its Question Analytics in more detail. '
-                . html_writer::link(
+                . \html_writer::link(
                     'https://phpdoc.moodledev.io/4.5/d2/dc2/classquiz__statistics__report.html',
                     'Moodle Quiz Statistics',
                     ['target' => '_blank', 'rel' => 'noopener']

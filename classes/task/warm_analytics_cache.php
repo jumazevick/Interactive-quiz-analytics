@@ -106,13 +106,21 @@ class warm_analytics_cache extends \core\task\scheduled_task {
         // course preparation task and let it decide which quiz snapshots are
         // stale; do not perform the raw question-engine work in this sweep.
         foreach (\local_quizanalytics_quiz_data_fetcher::get_courses_with_stack_quizzes() as $courseid) {
+            $quizzes = \local_quizanalytics_quiz_data_fetcher::get_course_stack_quizzes((int) $courseid);
             \local_quizanalytics\task\warm_single_view_adhoc_task::dispatch_for_course(
                 (int) $courseid,
                 course_analysis::DEFAULT_GRADE_TYPE,
                 false,
-                false
+                false,
+                null,
+                array_keys($quizzes),
+                true
             );
         }
+        // The legacy direct-warming implementation below is intentionally
+        // unreachable. Preparation is now delegated to the deduplicated
+        // adhoc task above so scheduled runs and visitor-triggered runs share
+        // one pipeline; retain the old code temporarily for reference.
         return;
 
         // This is CLI/cron-only (never a web request a shared host needs to

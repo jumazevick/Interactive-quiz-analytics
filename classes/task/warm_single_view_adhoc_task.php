@@ -150,8 +150,11 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
      */
     public static function dispatch_for_course(
         int $courseid, string $gradetype, bool $colorblind, bool $anonymize, ?string $fingerprint = null,
-        ?array $quizids = null
+        ?array $quizids = null, bool $prepare = false
     ): void {
+        $quizids = $quizids === null
+            ? []
+            : \local_quizanalytics_quiz_cache_helper::normalize_quiz_ids($quizids);
         $customdata = [
             'type' => 'course',
             'id' => $courseid,
@@ -159,9 +162,31 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
             'fingerprint' => $fingerprint,
             'colorblind' => $colorblind,
             'anonymize' => $anonymize,
-            'quizids' => $quizids === null ? [] : array_map('intval', $quizids),
+            'quizids' => $quizids,
         ];
-        if ($fingerprint !== null) {
+        if ($prepare) {
+            $customdata['prepare'] = true;
+        }
+        if ($prepare) {
+            // Preparation has no result fingerprint until the task computes
+            // the cheap course fingerprint, but it must still use the same
+            // canonical selection key as the progress endpoint.
+            self::$progressselectionkey = \local_quizanalytics_quiz_cache_helper::selection_key($quizids);
+            $progressfingerprint = $fingerprint;
+            if ($progressfingerprint === null) {
+                $quizzes = \local_quizanalytics_quiz_data_fetcher::get_course_stack_quizzes($courseid);
+                $progressfingerprint = \local_quizanalytics_quiz_cache_helper::stats_for_quizzes($quizzes)->fingerprint;
+            }
+            $current = self::get_progress(
+                $courseid, $progressfingerprint, $gradetype, $colorblind, $anonymize,
+                self::$progressselectionkey
+            );
+            if ($current === false || ($current['status'] ?? '') !== 'running') {
+                self::set_progress($courseid, $progressfingerprint, $gradetype, $colorblind, $anonymize,
+                    'queued', 'queued', 0, 0, get_string('progressqueued', 'local_quizanalytics'));
+            }
+        }
+        if ($fingerprint !== null && !$prepare) {
             $selectionkey = \local_quizanalytics_quiz_cache_helper::selection_key($customdata['quizids']);
             self::$progressselectionkey = $selectionkey;
             $current = self::get_progress($courseid, $fingerprint, $gradetype, $colorblind, $anonymize, $selectionkey);
@@ -314,8 +339,12 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
                 $this->warm_quiz_meta((int) $data->id, (bool) $data->anonymize, $client);
                 break;
             default:
-                if (empty($data->quizids)) {
-                    $this->prepare_course_view((int) $data->id, $client);
+                if (!empty($data->prepare) || !isset($data->fingerprint) || $data->fingerprint === null) {
+                    $this->prepare_course_view(
+                        (int) $data->id,
+                        $client,
+                        isset($data->quizids) ? array_map('intval', (array) $data->quizids) : []
+                    );
                     break;
                 }
                 $this->warm_course_view(
@@ -336,7 +365,7 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
      * lecturer's current checkbox selection and runs at most once per stale
      * quiz snapshot.
      */
-    private function prepare_course_view(int $courseid, $client): void {
+    private function prepare_course_view(int $courseid, $client, array $quizids = []): void {
         global $DB;
 
         $course = $DB->get_record('course', ['id' => $courseid]);
@@ -349,7 +378,10 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
         }
         $coursestats = \local_quizanalytics_quiz_cache_helper::stats_for_quizzes($quizzes);
         $fingerprint = $coursestats->fingerprint;
-        self::$progressselectionkey = \local_quizanalytics_quiz_cache_helper::selection_key([]);
+        $quizids = \local_quizanalytics_quiz_cache_helper::normalize_quiz_ids(
+            $quizids ?: array_map(fn($quiz) => (int) $quiz->id, $quizzes)
+        );
+        self::$progressselectionkey = \local_quizanalytics_quiz_cache_helper::selection_key($quizids);
 
         $stale = [];
         $statsbyquiz = \local_quizanalytics_quiz_cache_helper::stats_for_quizzes_by_id($quizzes);
@@ -417,12 +449,16 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
             $facilitybyquiz[$name]['count'] = ($facilitybyquiz[$name]['count'] ?? 0) + 1;
         }
 
+        $failed = [];
         foreach ($stale as $item) {
             $quiz = $item['quiz'];
             try {
                 $records = $byquiz[$quiz->name] ?? [];
                 $rows = \local_quizanalytics\quiz\analytics\parser::build_response_rows($records, $quiz->name, false);
                 $frame = \local_quizanalytics\quiz\analytics\quiz_metrics::build_quiz_attempt_frame($rows);
+                if (empty($frame)) {
+                    throw new \RuntimeException('No prepared gradable attempts were produced.');
+                }
                 $facility = $facilitybyquiz[$quiz->name] ?? null;
                 \local_quizanalytics_prepared_store::save_success($courseid, (int) $quiz->id, $item['fingerprint'], [
                     'quizid' => (int) $quiz->id,
@@ -433,8 +469,18 @@ class warm_single_view_adhoc_task extends \core\task\adhoc_task {
                 ]);
             } catch (\Throwable $e) {
                 \local_quizanalytics_prepared_store::mark_failed($courseid, (int) $quiz->id, $e->getMessage());
+                $failed[] = ['id' => (int) $quiz->id, 'name' => $quiz->name, 'error' => $e->getMessage()];
                 mtrace('local_quizanalytics: quiz preparation failed for quiz ' . $quiz->id . ': ' . $e->getMessage());
             }
+        }
+        if (!empty($failed)) {
+            self::set_progress($courseid, $fingerprint, 'Average Grade', false, false,
+                'failed', 'failed', count($stale) - count($failed), count($stale),
+                get_string('progressfailed', 'local_quizanalytics'));
+            mtrace('local_quizanalytics: course preparation failed for course ' . $courseid
+                . ' (' . count($failed) . ' of ' . count($stale) . ' quizzes failed): '
+                . implode(', ', array_map(fn($item) => $item['id'] . ':' . $item['name'], $failed)));
+            return;
         }
         self::set_progress($courseid, $fingerprint, 'Average Grade', false, false,
             'complete', 'complete', count($stale), count($stale),

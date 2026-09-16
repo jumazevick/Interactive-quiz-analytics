@@ -47,7 +47,10 @@ define([], function() {
                 message.textContent += ' — ' + diagnostics.join(' · ');
             }
             if (data.status === 'complete') {
-                window.setTimeout(() => window.location.reload(), 5000);
+                // The completed task has already written the durable rows the
+                // page reads. Reload promptly so the visitor sees the report
+                // instead of sitting on a 100% progress bar.
+                window.setTimeout(() => window.location.reload(), 500);
                 return true;
             }
             return data.status === 'failed';

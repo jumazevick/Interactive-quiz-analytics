@@ -214,7 +214,8 @@ $refreshrequested = optional_param('refresh', 0, PARAM_BOOL);
 if ($needsPreparation || $refreshrequested) {
     \local_quizanalytics\task\warm_single_view_adhoc_task::dispatch_for_course(
         $courseid, \local_quizanalytics\quiz\analytics\course_analysis::DEFAULT_GRADE_TYPE,
-        $colorblind, $anonymize
+        $colorblind, $anonymize, null,
+        array_keys($allstackquizzes), true
     );
 }
 
@@ -287,7 +288,12 @@ $qwkey = local_quizanalytics_quiz_cache_helper::build_key(
 $progressfingerprint = empty($preparedframes)
     ? local_quizanalytics_quiz_cache_helper::stats_for_quizzes($allstackquizzes)->fingerprint
     : $coursestats->fingerprint;
-$progressquizids = empty($preparedframes) ? [] : array_keys($stackquizzes);
+// The background task always receives the concrete quiz-id list below. Use
+// that same list when building the progress endpoint URL; using [] for the
+// cold/preparation path makes the endpoint poll the "all quizzes" key while
+// the task writes the selected-quiz key, so the browser can report progress
+// but never observe the task's completed state consistently.
+$progressquizids = local_quizanalytics_quiz_cache_helper::normalize_quiz_ids(array_keys($stackquizzes));
 $progressurl = (new moodle_url('/local/quizanalytics/progress.php', [
     'id' => $courseid, 'fingerprint' => $progressfingerprint,
     'gradetype' => $gradetype, 'colorblind' => (int) $colorblind,
@@ -313,11 +319,15 @@ $renderprogress = function () use ($progressurl): void {
 
 if (empty($preparedframes)) {
     $renderprogress();
-    echo $OUTPUT->notification(
-        $refreshrequested ? get_string('analyticsrefreshqueued', 'local_quizanalytics')
-            : get_string('analyticspreparing', 'local_quizanalytics'),
-        'notifymessage'
-    );
+    // The progress component already describes the preparation state. Keep
+    // the refresh acknowledgement, but do not add a second static
+    // "preparing" notice that remains visible after the bar reaches 100%.
+    if ($refreshrequested) {
+        echo $OUTPUT->notification(
+            get_string('analyticsrefreshqueued', 'local_quizanalytics'),
+            'notifymessage'
+        );
+    }
     echo $OUTPUT->footer();
     exit;
 }
